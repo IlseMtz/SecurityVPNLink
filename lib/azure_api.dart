@@ -47,12 +47,14 @@ class RedAzure {
       propietarioId = idJson(json['propietarioId']),
       nombre = json['nombre'] as String,
       estado = json['estado'] as String,
-      cidr = json['cidr'] as String?;
+      cidr = json['cidr'] as String?,
+      modoTunel = json['modoTunel'] as String?;
   final int id;
   final int propietarioId;
   final String nombre;
   final String estado;
   final String? cidr;
+  final String? modoTunel;
   bool esPropietario(CuentaAzure cuenta) => propietarioId == cuenta.id;
 }
 

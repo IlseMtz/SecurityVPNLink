@@ -1,3 +1,4 @@
+import 'resumen_vpn.dart';
 import 'estado_emision_vpn.dart';
 
 import 'dart:async';
@@ -821,6 +822,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   bool get propietario => widget.red.esPropietario(widget.cuenta);
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
   int revisionPerfil = 0;
+  String? modoTunel;
   bool get aplicada => puedeEntregarPerfil(
     redActiva: redActiva,
     dispositivoActivo: widget.equipo.activo,
@@ -833,6 +835,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   void initState() {
     super.initState();
     redActiva = widget.red.estado == 'ACTIVA';
+    modoTunel = widget.red.modoTunel;
     if (acceso) consultarVpn();
   }
 
@@ -852,6 +855,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
         setState(() {
           vpn = datos;
           redActiva = red.estado == 'ACTIVA';
+          modoTunel = red.modoTunel;
         });
       }
     } catch (e) {
@@ -965,6 +969,11 @@ class _EquipoDialogState extends State<EquipoDialog> {
                     ? 'Emisión sin confirmar. No repitas la solicitud hasta verificar en el servidor si se registró; no se habilitará la entrega del perfil anterior.'
                     : 'Operación: ${operacion!['estado'] ?? 'PENDIENTE'}. ${terminal ? '' : 'Todavía no confirma la aplicación del perfil.'}',
               ),
+            ResumenVpn(
+              operacion: operacion,
+              modo: modoTunel,
+              conexion: conexion,
+            ),
             if (vpn != null) ...[
               Text(
                 'Configuración aplicada: ${vpn!['estadoAplicado'] ?? 'Sin confirmar'}',
@@ -993,7 +1002,9 @@ class _EquipoDialogState extends State<EquipoDialog> {
             ],
             if (operacion != null)
               TextButton(
-                onPressed: ocupado ? null : actualizarOperacion,
+                onPressed: ocupado || consultando || operacion?['id'] is! String
+                    ? null
+                    : actualizarOperacion,
                 child: const Text('Actualizar operación'),
               ),
             if (acceso && widget.equipo.activo) ...[
@@ -1025,12 +1036,6 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 child: const Text('Consultar actividad observada'),
               ),
             ],
-            if (conexion != null)
-              aviso(
-                conexion!['ultimoHandshake'] == null
-                    ? 'Sin actividad observada. No se ha registrado un handshake.'
-                    : 'Último handshake: ${conexion!['ultimoHandshake']}. Actividad reciente: ${conexion!['actividadReciente'] == true ? 'Sí' : 'No'}. Esto no garantiza acceso al recurso.',
-              ),
             if (propietario && widget.equipo.activo)
               TextButton(
                 onPressed: ocupado ? null : reponer,
