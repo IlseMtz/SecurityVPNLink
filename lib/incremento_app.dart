@@ -1,3 +1,6 @@
+import 'resumen_vpn.dart';
+import 'estado_emision_vpn.dart';
+
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -818,11 +821,21 @@ class _EquipoDialogState extends State<EquipoDialog> {
   Timer? timer;
   bool get propietario => widget.red.esPropietario(widget.cuenta);
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
-  bool get aplicada => redActiva && vpn?['estadoAplicado'] == 'ACTIVA';
+  int revisionPerfil = 0;
+  String? modoTunel;
+  bool get aplicada => puedeEntregarPerfil(
+    redActiva: redActiva,
+    dispositivoActivo: widget.equipo.activo,
+    cuentaActiva: widget.cuenta.estado == 'ACTIVO',
+    estadoPerfil: vpn?['estadoAplicado'] as String?,
+    estadoOperacion: operacion?['estado'] as String?,
+    consultaEnCurso: consultando,
+  );
   @override
   void initState() {
     super.initState();
     redActiva = widget.red.estado == 'ACTIVA';
+    modoTunel = widget.red.modoTunel;
     if (acceso) consultarVpn();
   }
 
@@ -833,26 +846,41 @@ class _EquipoDialogState extends State<EquipoDialog> {
   }
 
   Future<void> consultarVpn() async {
+    final revision = ++revisionPerfil;
+    setState(() => vpn = null);
     try {
       final datos = await widget.api.vpn(widget.red.id, widget.equipo.id);
       final red = await widget.api.red(widget.red.id);
-      if (mounted) {
+      if (mounted && revision == revisionPerfil) {
         setState(() {
           vpn = datos;
           redActiva = red.estado == 'ACTIVA';
+          modoTunel = red.modoTunel;
         });
       }
     } catch (e) {
-      if (mounted && !(e is ExcepcionApi && e.estado == 404)) {
+      if (mounted &&
+          revision == revisionPerfil &&
+          !(e is ExcepcionApi && e.estado == 404)) {
         setState(() => error = mensajeSeguro(e));
       }
     }
   }
 
   Future<void> solicitar() async {
-    if (ocupado || !propietario) return;
+    if (ocupado ||
+        !propietario ||
+        !widget.equipo.activo ||
+        !redActiva ||
+        widget.cuenta.estado != 'ACTIVO' ||
+        (operacion != null && !terminal))
+      return;
+    revisionPerfil++;
+    timer?.cancel();
     setState(() {
       ocupado = true;
+      vpn = null;
+      operacion = {'estado': 'SIN_CONFIRMAR'};
       error = null;
     });
     try {
@@ -878,7 +906,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
       ['APLICADA', 'FALLIDA', 'CANCELADA'].contains(operacion?['estado']);
   Future<void> actualizarOperacion() async {
     if (consultando || operacion?['id'] is! String) return;
-    consultando = true;
+    setState(() => consultando = true);
     try {
       final nueva = await widget.api.operacion(
         widget.red.id,
@@ -897,7 +925,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
       timer?.cancel();
       if (mounted) setState(() => error = mensajeSeguro(e));
     } finally {
-      consultando = false;
+      if (mounted) setState(() => consultando = false);
     }
   }
 
@@ -937,8 +965,15 @@ class _EquipoDialogState extends State<EquipoDialog> {
             if (error != null) aviso(error!, esError: true),
             if (operacion != null)
               aviso(
-                'Operación: ${operacion!['estado'] ?? 'PENDIENTE'}. ${terminal ? '' : 'La solicitud está registrada; todavía no confirma la aplicación del perfil.'}',
+                operacion!['estado'] == 'SIN_CONFIRMAR'
+                    ? 'Emisión sin confirmar. No repitas la solicitud hasta verificar en el servidor si se registró; no se habilitará la entrega del perfil anterior.'
+                    : 'Operación: ${operacion!['estado'] ?? 'PENDIENTE'}. ${terminal ? '' : 'Todavía no confirma la aplicación del perfil.'}',
               ),
+            ResumenVpn(
+              operacion: operacion,
+              modo: modoTunel,
+              conexion: conexion,
+            ),
             if (vpn != null) ...[
               Text(
                 'Configuración aplicada: ${vpn!['estadoAplicado'] ?? 'Sin confirmar'}',
@@ -949,7 +984,11 @@ class _EquipoDialogState extends State<EquipoDialog> {
             if (propietario && widget.equipo.activo) ...[
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: ocupado || (operacion != null && !terminal)
+                onPressed:
+                    ocupado ||
+                        !redActiva ||
+                        widget.cuenta.estado != 'ACTIVO' ||
+                        (operacion != null && !terminal)
                     ? null
                     : solicitar,
                 child: Text(
@@ -963,7 +1002,9 @@ class _EquipoDialogState extends State<EquipoDialog> {
             ],
             if (operacion != null)
               TextButton(
-                onPressed: ocupado ? null : actualizarOperacion,
+                onPressed: ocupado || consultando || operacion?['id'] is! String
+                    ? null
+                    : actualizarOperacion,
                 child: const Text('Actualizar operación'),
               ),
             if (acceso && widget.equipo.activo) ...[
@@ -995,12 +1036,6 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 child: const Text('Consultar actividad observada'),
               ),
             ],
-            if (conexion != null)
-              aviso(
-                conexion!['ultimoHandshake'] == null
-                    ? 'Sin actividad observada. No se ha registrado un handshake.'
-                    : 'Último handshake: ${conexion!['ultimoHandshake']}. Actividad reciente: ${conexion!['actividadReciente'] == true ? 'Sí' : 'No'}. Esto no garantiza acceso al recurso.',
-              ),
             if (propietario && widget.equipo.activo)
               TextButton(
                 onPressed: ocupado ? null : reponer,
