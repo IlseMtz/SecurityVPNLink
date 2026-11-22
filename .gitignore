@@ -46,3 +46,14 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Generados y datos privados
+/android/build/
+/hosting/web_build/
+/hosting/dist/
+/hosting/assets.generated.mjs
+.env
+.env.*
+!.env.example
+*privada*.json
+ACCESO_REVISION.txt

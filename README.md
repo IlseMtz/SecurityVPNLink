@@ -1,17 +1,88 @@
-# securelink_app
+# SecureLink — Equipo 1
 
-A new Flutter project.
+Frontend Flutter de VS-11 (entrega de configuración VPN) y VS-14 (registro y consulta de dispositivos).
 
-## Getting Started
+Sitio actual: https://securelink-equipo1-incremento1-20261122.khakihymn8.chatgpt.site
 
-This project is a starting point for a Flutter application.
+## Para trabajar en equipo
 
-A few resources to get you started if this is your first Flutter project:
+1. El propietario del repositorio debe dar acceso de colaborador a Ricardo Almada y Jaime López en GitHub. Cada persona clona el repositorio y trabaja en su propia rama.
+2. Instalar Git, Flutter con Dart compatible con `^3.13.7` y Node.js con soporte de `node --test`. Esta entrega se verificó con Flutter 3.50.0 y Dart 3.14.0. No necesitan Android Studio para compilar web.
+3. Desde la carpeta del proyecto:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```powershell
+git pull origin main
+git switch -c feature/nombre-del-cambio
+flutter pub get
+flutter test --concurrency=1
+flutter analyze --no-fatal-infos
+node --test hosting/test_worker.mjs
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Si la rama principal del equipo tiene otro nombre, sustituir `main`. Modificar pantallas en `lib/incremento_app.dart`, contrato HTTP en `lib/azure_api.dart` y añadir pruebas en `test/`. La sesión está en `lib/sesion_azure.dart`; la reposición de perfiles, en `lib/reposicion_perfil.dart`. `lib/dispositivos.dart` valida el formulario. `hosting/worker.mjs` protege el acceso al backend y sirve la web.
+
+4. La pareja revisa el cambio y ejecuta las verificaciones antes de integrarlo:
+
+```powershell
+git status
+git diff
+git add -A
+git diff --cached --stat
+git commit -m "VS-14: describir el cambio realizado"
+git push -u origin feature/nombre-del-cambio
+```
+
+Abrir un pull request en GitHub, solicitar revisión al compañero e integrar en la rama principal. Cada integrante utiliza su propia identidad Git. Los roles de piloto y copiloto se anotan según el trabajo real realizado; no se cambian autores de commits para simular participación.
+
+## Preparar una nueva versión web
+
+Desde la raíz del repositorio:
+
+```powershell
+.\tool\preparar_web.ps1
+```
+
+Si los programas no están en PATH:
+
+```powershell
+.\tool\preparar_web.ps1 -Flutter 'C:\ruta\flutter\bin\flutter.bat' -Node 'C:\ruta\node.exe'
+```
+
+El script obtiene dependencias, ejecuta las pruebas Flutter y Node, analiza y compila la web; se detiene ante errores. Copia los recursos a `hosting/web_build` y genera el Worker en `hosting/dist/server/index.js` con el manifiesto `hosting/dist/.openai/hosting.json`. Son archivos generados e ignorados por Git.
+
+## Subir cambios al MISMO sitio
+
+**Un push a GitHub no actualiza automáticamente este despliegue.** El repositorio GitHub y el repositorio de publicación de Sites son destinos distintos; no hay CI configurada entre ellos.
+
+El propietario del sitio o alguien con permiso de edición en Sites debe publicar. Tener acceso al GitHub, o conocer la URL pública, no otorga ese permiso. Si el compañero no tiene acceso a Sites, integra su pull request y el propietario publica la versión revisada.
+
+En el chat con Sites conectado, pedir:
+
+> Actualiza el sitio existente appgprj_6b0313ccc5d081919910e30c7f9ece80 con la versión de este repositorio. Ejecuta tool/preparar_web.ps1. Conserva el project_id, la URL y la audiencia pública. Sincroniza la fuente con el repositorio de publicación, guarda una nueva versión y despliégala. No crees otro sitio.
+
+El flujo de publicación debe abrir el repositorio fuente del sitio usando una credencial temporal de Sites, copiar la fuente revisada y los recursos de hosting, ejecutar las pruebas y el empaquetado, guardar la versión con su commit y desplegarla. En el repositorio fuente del sitio, `hosting` se publica como raíz del Worker; el código Flutter puede conservarse en `flutter_src`. Nunca copiar `.git`, credenciales, tokens, cuentas de revisión ni archivos VPN. Las credenciales de publicación se pasan temporalmente por stdin, sin guardarlas en Git.
+
+Después comprobar la URL existente, login, consulta de dispositivos y una validación de formulario. Si falla, volver a desplegar la versión anterior del mismo sitio. No enviar una URL nueva por cada actualización.
+
+El dominio `chatgpt.site` pertenece al alojamiento actual. Cambiar de proveedor/dominio es una tarea de infraestructura separada; editar el título de Flutter no cambia ese dominio.
+
+## Backend y desarrollo local
+
+Backend: https://nero.northcentralus.cloudapp.azure.com/api/v1
+
+El contrato vigente usa `/redes/{redId}/dispositivos`, configuración, QR, operaciones VPN y auditoría. El formulario usa WINDOWS, ANDROID, IOS, LINUX o MACOS. No utiliza el antiguo POST `/dispositivos`.
+
+Azure rechaza CORS desde orígenes nuevos, incluido localhost. `flutter run -d chrome` permite revisar la interfaz local, pero la integración HTTP requiere un origen permitido por Azure o servir la web y el Worker juntos mediante una herramienta local compatible con Workers. El script prepara la compilación con `/api/v1` del sitio publicado; no configura CORS en Azure. Para otro despliegue, usar `-ApiUrl 'https://nuevo-origen/api/v1'` y publicar el intermediario en ese mismo origen.
+
+El Worker reenvía solo rutas permitidas al host fijo de Azure; no reenvía cookies ni sigue redirecciones. La autorización real la aplica Azure. No quitar estas restricciones para resolver un error CORS.
+
+## Alcance y pruebas
+
+Se conservan las pruebas del contrato Azure, pantallas, sesión, reposición y del intermediario. Usan dobles controlados: no demuestran por sí mismas conectividad real de WireGuard. La integración Azure y la aceptación física deben verificarse por separado. La entrega presencial requiere comprobar identidad; la importación del perfil y el acceso al laboratorio se prueban en el equipo del propietario.
+
+La limpieza retiró pantallas demo y el contrato local anterior, junto con sus pruebas específicas. También retiró del frontend los esqueletos RED de VS-12/VS-13, que no eran usados por la aplicación. Se respaldaron fuera del repositorio: no se presentan como funcionalidades implementadas ni como pruebas convertidas a verde.
+
+Se mantiene Android como estructura de plataforma Flutter; esta entrega está validada para web, sin APK validado. El adaptador nativo de guardado necesita implementación específica antes de ofrecer descargas nativas.
+
+No guardar contraseñas, tokens, `.conf`, QR, entornos Postman con secretos ni datos privados de revisión en Git o en logs. Mantener `pubspec.lock`, pruebas, `analysis_options.yaml`, `.metadata`, archivos web referenciados y manifiesto de hosting: son necesarios para mantener y reproducir el proyecto.
+

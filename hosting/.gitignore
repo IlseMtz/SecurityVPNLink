@@ -1,0 +1,7 @@
+dist/
+assets.generated.mjs
+web_build/canvaskit/
+node_modules/
+*.log
+.env
+.env.*

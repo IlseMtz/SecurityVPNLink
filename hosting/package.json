@@ -1,0 +1,9 @@
+{
+  "name": "securelink-incremento1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node compilar_worker.mjs",
+    "test": "node --test test_worker.mjs"
+  }
+}
