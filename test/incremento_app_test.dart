@@ -17,12 +17,14 @@ void main() {
   late int propietario;
   late String estadoVpn;
   late String estadoOperacion;
+  late int respuestaEmision;
   late List<String> rutas;
   setUp(() {
     solicitudesSecretas = 0;
     propietario = 1;
     estadoVpn = 'ACTIVA';
     estadoOperacion = 'PENDIENTE';
+    respuestaEmision = 202;
     rutas = [];
     api = AzureApi(
       obtenerToken: () => 'token-ficticio',
@@ -60,12 +62,19 @@ void main() {
             'id': '00000000-0000-0000-0000-000000000001',
             'estado': estadoOperacion,
           };
-        else if (path.endsWith('/configuracion') && r.method == 'POST')
+        else if (path.endsWith('/configuracion') && r.method == 'POST') {
+          if (respuestaEmision != 202) {
+            return http.Response(
+              '{}',
+              respuestaEmision,
+              headers: {'content-type': 'application/json'},
+            );
+          }
           respuesta = {
             'id': '00000000-0000-0000-0000-000000000001',
             'estado': 'PENDIENTE',
           };
-        else if (path.endsWith('/configuracion/qr')) {
+        } else if (path.endsWith('/configuracion/qr')) {
           solicitudesSecretas++;
           return http.Response.bytes(
             base64Decode(
@@ -114,18 +123,19 @@ void main() {
     sesion.limpiar();
     await tester.pumpWidget(const SizedBox());
   });
-  testWidgets('el frontend carga redes y dispositivos con el contrato real tras autenticar', (
-    tester,
-  ) async {
-    await sesion.ingresar('revision@example.test', 'ficticia');
-    await abrir(tester, RedesPage(sesion: sesion));
-    expect(find.text('Equipo de revisión'), findsOneWidget);
-    expect(find.text('Registrar dispositivo'), findsOneWidget);
-    expect(rutas, contains('/api/v1/redes/10/dispositivos'));
-    expect(rutas, contains('/api/v1/redes/10/miembros'));
-    sesion.limpiar();
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'el frontend carga redes y dispositivos con el contrato real tras autenticar',
+    (tester) async {
+      await sesion.ingresar('revision@example.test', 'ficticia');
+      await abrir(tester, RedesPage(sesion: sesion));
+      expect(find.text('Equipo de revisión'), findsOneWidget);
+      expect(find.text('Registrar dispositivo'), findsOneWidget);
+      expect(rutas, contains('/api/v1/redes/10/dispositivos'));
+      expect(rutas, contains('/api/v1/redes/10/miembros'));
+      sesion.limpiar();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
   testWidgets(
     'miembro sin propiedad no ve el alta ni consulta miembros restringidos',
     (tester) async {
@@ -135,7 +145,7 @@ void main() {
       expect(find.text('Registrar dispositivo'), findsNothing);
       expect(rutas.where((r) => r.endsWith('/miembros')), isEmpty);
       sesion.limpiar();
-    await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const SizedBox());
     },
   );
   testWidgets(
@@ -167,7 +177,7 @@ void main() {
       expect(find.text('Selecciona el sistema operativo.'), findsOneWidget);
       expect(rutas, isEmpty);
       sesion.limpiar();
-    await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const SizedBox());
     },
   );
   testWidgets('la entrega no pide archivo ni QR antes de verificar identidad', (
@@ -223,7 +233,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(Image), findsNothing);
       sesion.limpiar();
-    await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(const SizedBox());
     },
   );
   testWidgets('una configuración pendiente mantiene deshabilitada la entrega', (
@@ -274,7 +284,98 @@ void main() {
       expect(solicitudesSecretas, 0);
       expect(find.textContaining('10.8.0.2'), findsOneWidget);
       sesion.limpiar();
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+  for (final estado in ['PENDIENTE', 'FALLIDA', 'CANCELADA']) {
+    testWidgets('VS-13: emisión $estado bloquea entrega de perfil anterior', (
+      tester,
+    ) async {
+      estadoVpn = 'ACTIVA';
+      estadoOperacion = estado;
+      await abrir(
+        tester,
+        EquipoDialog(
+          api: api,
+          red: RedAzure.fromJson(redFixture()),
+          equipo: EquipoAzure.fromJson(equipoFixture()),
+          cuenta: CuentaAzure.fromJson(cuentaFixture()),
+        ),
+      );
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Solicitar configuración VPN'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Operación: $estado.'), findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Entregar archivo o QR'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(solicitudesSecretas, 0);
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+  testWidgets('VS-13: operación aplicada refresca perfil y habilita entrega', (
+    tester,
+  ) async {
+    estadoOperacion = 'APLICADA';
+    await abrir(
+      tester,
+      EquipoDialog(
+        api: api,
+        red: RedAzure.fromJson(redFixture()),
+        equipo: EquipoAzure.fromJson(equipoFixture()),
+        cuenta: CuentaAzure.fromJson(cuentaFixture()),
+      ),
+    );
+    await tester.tap(
+      find.widgetWithText(FilledButton, 'Solicitar configuración VPN'),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Entregar archivo o QR'),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(rutas.where((ruta) => ruta.endsWith('/vpn')).length, 2);
+    expect(solicitudesSecretas, 0);
     await tester.pumpWidget(const SizedBox());
+  });
+  testWidgets(
+    'VS-13: error 503 no confirma emisión ni entrega perfil anterior',
+    (tester) async {
+      respuestaEmision = 503;
+      await abrir(
+        tester,
+        EquipoDialog(
+          api: api,
+          red: RedAzure.fromJson(redFixture()),
+          equipo: EquipoAzure.fromJson(equipoFixture()),
+          cuenta: CuentaAzure.fromJson(cuentaFixture()),
+        ),
+      );
+      await tester.tap(
+        find.widgetWithText(FilledButton, 'Solicitar configuración VPN'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Emisión sin confirmar.'), findsOneWidget);
+      expect(
+        tester
+            .widget<OutlinedButton>(
+              find.widgetWithText(OutlinedButton, 'Entregar archivo o QR'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(solicitudesSecretas, 0);
+      await tester.pumpWidget(const SizedBox());
     },
   );
 }
