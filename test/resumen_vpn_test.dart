@@ -44,7 +44,7 @@ void main() {
     expect(find.text('Emisión: Aplicada'), findsOneWidget);
     expect(find.textContaining('no conecta automáticamente'), findsOneWidget);
     expect(
-      find.textContaining('No corresponde al Split Tunnel requerido'),
+      find.textContaining('Full Tunnel: el perfil dirige'),
       findsOneWidget,
     );
     expect(find.textContaining('Sin consultar.'), findsOneWidget);

@@ -84,7 +84,7 @@ class ResumenVpn extends StatelessWidget {
       ),
     };
     final modoTexto = switch (modo) {
-      'FULL' => 'Full Tunnel: el modo reportado dirige todo el tráfico por la VPN. No corresponde al Split Tunnel requerido.',
+      'FULL' => 'Full Tunnel: el perfil dirige el tráfico de Internet a través de la VPN cuando lo activas en WireGuard.',
       'SPLIT' => 'Split Tunnel: solo las rutas configuradas deben pasar por la VPN. Verifica las rutas del perfil y el acceso al laboratorio.',
       _ => 'El servidor no informó un modo de túnel reconocido.',
     };
@@ -94,12 +94,7 @@ class ResumenVpn extends StatelessWidget {
       children: [
         if (operacion != null)
           tarjeta('Emisión: $titulo', detalle, color, icono),
-        tarjeta(
-          'Modo de túnel',
-          modoTexto,
-          modo == 'FULL' ? Colors.orange : Colors.blue,
-          Icons.alt_route,
-        ),
+        tarjeta('Modo de túnel', modoTexto, Colors.blue, Icons.alt_route),
         tarjeta(
           'Actividad del dispositivo',
           conexion == null
