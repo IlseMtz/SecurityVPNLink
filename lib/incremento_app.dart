@@ -823,6 +823,8 @@ class _EquipoDialogState extends State<EquipoDialog> {
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
   int revisionPerfil = 0;
   String? modoTunel;
+  String? estadoRed;
+  bool get permiteEmision => estadoRed == 'ACTIVA' || estadoRed == 'PENDIENTE';
   bool get aplicada => puedeEntregarPerfil(
     redActiva: redActiva,
     dispositivoActivo: widget.equipo.activo,
@@ -834,6 +836,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   @override
   void initState() {
     super.initState();
+    estadoRed = widget.red.estado;
     redActiva = widget.red.estado == 'ACTIVA';
     modoTunel = widget.red.modoTunel;
     if (acceso) consultarVpn();
@@ -849,8 +852,14 @@ class _EquipoDialogState extends State<EquipoDialog> {
     final revision = ++revisionPerfil;
     setState(() => vpn = null);
     try {
-      final datos = await widget.api.vpn(widget.red.id, widget.equipo.id);
       final red = await widget.api.red(widget.red.id);
+      if (!mounted || revision != revisionPerfil) return;
+      setState(() {
+        estadoRed = red.estado;
+        redActiva = red.estado == 'ACTIVA';
+        modoTunel = red.modoTunel;
+      });
+      final datos = await widget.api.vpn(widget.red.id, widget.equipo.id);
       if (mounted && revision == revisionPerfil) {
         setState(() {
           vpn = datos;
@@ -871,10 +880,11 @@ class _EquipoDialogState extends State<EquipoDialog> {
     if (ocupado ||
         !propietario ||
         !widget.equipo.activo ||
-        !redActiva ||
+        !permiteEmision ||
         widget.cuenta.estado != 'ACTIVO' ||
-        (operacion != null && !terminal))
+        (operacion != null && !terminal)) {
       return;
+    }
     revisionPerfil++;
     timer?.cancel();
     setState(() {
@@ -986,7 +996,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
               FilledButton(
                 onPressed:
                     ocupado ||
-                        !redActiva ||
+                        !permiteEmision ||
                         widget.cuenta.estado != 'ACTIVO' ||
                         (operacion != null && !terminal)
                     ? null
