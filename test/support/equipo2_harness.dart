@@ -15,13 +15,25 @@ class EscenarioEquipo2 {
       this.estadoAuditoria = 200}) {
     api = AzureApi(obtenerToken: () => 'TOKEN_SINTETICO_E2',
       cliente: MockClient(responder));
-    addTearDown(() { if (sesion != null) { sesion!.dispose(); } else { api.cerrar(); } });
+    addTearDown(cerrar);
   }
   final int propietario;
   final String estadoEquipo;
   final int estadoAuditoria;
   late final AzureApi api;
   SesionAzure? sesion;
+  bool _cerrado = false;
+
+  void cerrar() {
+    if (_cerrado) return;
+    _cerrado = true;
+    if (sesion != null) {
+      sesion!.dispose();
+    } else {
+      api.cerrar();
+    }
+  }
+
   final peticiones = <http.Request>[];
   final eventos = [
     for (final accion in ['ALTA_DISPOSITIVO', 'EMISION', 'REVOCACION', 'CAMBIO_PERMISO'])
@@ -64,7 +76,10 @@ class EscenarioEquipo2 {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: widget)));
+    await tester.pumpWidget(_CicloEscenarioEquipo2(
+      alCerrar: cerrar,
+      child: MaterialApp(home: Scaffold(body: widget)),
+    ));
     await tester.pumpAndSettle();
     addTearDown(() async { await tester.pumpWidget(const SizedBox.shrink()); });
   }
@@ -79,6 +94,29 @@ class EscenarioEquipo2 {
   }
   Future<void> auditoria(WidgetTester tester) =>
     montar(tester, AuditoriaDialog(api: api, redId: 10));
+}
+
+// Flutter desmonta el árbol antes de comprobar temporizadores pendientes.
+// La sesión pertenece al escenario y se libera en ese mismo ciclo, no solo
+// en addTearDown, que puede ejecutarse después de comprobar invariantes.
+class _CicloEscenarioEquipo2 extends StatefulWidget {
+  const _CicloEscenarioEquipo2({required this.alCerrar, required this.child});
+  final VoidCallback alCerrar;
+  final Widget child;
+
+  @override
+  State<_CicloEscenarioEquipo2> createState() => _CicloEscenarioEquipo2State();
+}
+
+class _CicloEscenarioEquipo2State extends State<_CicloEscenarioEquipo2> {
+  @override
+  Widget build(BuildContext context) => widget.child;
+
+  @override
+  void dispose() {
+    widget.alCerrar();
+    super.dispose();
+  }
 }
 
 Map<String,dynamic> evidenciaEquipo2(String nombre) {
