@@ -819,6 +819,8 @@ class _EquipoDialogState extends State<EquipoDialog> {
   String? error;
   bool ocupado = false, consultando = false, redActiva = false;
   Timer? timer;
+  Timer? timerActividad;
+  bool observando = false;
   bool get propietario => widget.red.esPropietario(widget.cuenta);
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
   int revisionPerfil = 0;
@@ -845,6 +847,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   @override
   void dispose() {
     timer?.cancel();
+    timerActividad?.cancel();
     super.dispose();
   }
 
@@ -940,7 +943,15 @@ class _EquipoDialogState extends State<EquipoDialog> {
   }
 
   Future<void> observar() async {
+    if (!mounted || !acceso || !widget.equipo.activo || observando || ocupado) {
+      return;
+    }
+    timerActividad ??= Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => observar(),
+    );
     setState(() {
+      observando = true;
       ocupado = true;
       error = null;
     });
@@ -950,7 +961,12 @@ class _EquipoDialogState extends State<EquipoDialog> {
     } catch (e) {
       if (mounted) setState(() => error = mensajeSeguro(e));
     } finally {
-      if (mounted) setState(() => ocupado = false);
+      if (mounted) {
+        setState(() {
+          observando = false;
+          ocupado = false;
+        });
+      }
     }
   }
 

@@ -88,7 +88,26 @@ class ResumenVpn extends StatelessWidget {
       'SPLIT' => 'Split Tunnel: solo las rutas configuradas deben pasar por la VPN. Verifica las rutas del perfil y el acceso al laboratorio.',
       _ => 'El servidor no informó un modo de túnel reconocido.',
     };
-    final actividad = conexion?['actividadReciente'] == true;
+    final ahora = DateTime.now().toUtc();
+    DateTime? fecha(String campo) {
+      final valor = conexion?[campo];
+      return valor is String ? DateTime.tryParse(valor)?.toUtc() : null;
+    }
+
+    final handshake = fecha('ultimoHandshake');
+    final observado = fecha('observadoEn');
+    bool vigente(DateTime? fecha, int segundos) =>
+        fecha != null &&
+        !fecha.isAfter(ahora) &&
+        ahora.difference(fecha) <= Duration(seconds: segundos);
+    final actualizado = vigente(observado, 60);
+    final actividad =
+        conexion?['actividadReciente'] == true &&
+        actualizado &&
+        vigente(handshake, 180);
+    final estadoActividad = actividad
+        ? 'Actividad reciente reportada.'
+        : 'Sin actividad observada. Sin actividad reciente reportada.';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -99,7 +118,7 @@ class ResumenVpn extends StatelessWidget {
           'Actividad del dispositivo',
           conexion == null
               ? 'Sin consultar. Una configuración aplicada no demuestra una conexión activa.'
-              : '${actividad ? 'Actividad reciente reportada.' : 'Sin actividad reciente reportada.'}\n'
+              : '$estadoActividad${actualizado ? '' : ' Desactualizado.'}\n'
                     'Peer presente: ${conexion!['peerPresente'] == true
                         ? 'Sí'
                         : conexion!['peerPresente'] == false

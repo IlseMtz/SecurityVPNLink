@@ -48,6 +48,7 @@ app.*.map.json
 .widget_preview/
 
 # Generados y datos privados
+/.tools/
 /android/build/
 /hosting/web_build/
 /hosting/dist/
