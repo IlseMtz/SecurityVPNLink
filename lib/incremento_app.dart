@@ -566,6 +566,8 @@ class _RedesPageState extends State<RedesPage> {
                   aviso(
                     'Estado de la red: ${red!.estado}. ${red!.cidr == null ? 'La subred se asignará con la primera configuración aplicada.' : 'Subred: ${red!.cidr}.'} Un dispositivo habilitado no equivale a una conexión activa.',
                   ),
+                  const Text('Recurso de laboratorio: 172.30.77.10 · TCP/80'),
+                  const Text('La administración de permisos de este recurso aún no está disponible en el panel.'),
                   Row(
                     children: [
                       Expanded(
@@ -823,11 +825,12 @@ class _EquipoDialogState extends State<EquipoDialog> {
   bool observando = false;
   bool get propietario => widget.red.esPropietario(widget.cuenta);
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
+  bool revocacionSolicitada = false;
   int revisionPerfil = 0;
   String? modoTunel;
   String? estadoRed;
   bool get permiteEmision => estadoRed == 'ACTIVA' || estadoRed == 'PENDIENTE';
-  bool get aplicada => puedeEntregarPerfil(
+  bool get aplicada => !revocacionSolicitada && puedeEntregarPerfil(
     redActiva: redActiva,
     dispositivoActivo: widget.equipo.activo,
     cuentaActiva: widget.cuenta.estado == 'ACTIVO',
@@ -879,8 +882,46 @@ class _EquipoDialogState extends State<EquipoDialog> {
     }
   }
 
+  Future<void> revocarDispositivo() async {
+    if (!propietario || ocupado || consultando || revocacionSolicitada ||
+        !widget.equipo.activo || widget.cuenta.estado != 'ACTIVO') return;
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Confirmar revocación'),
+        content: const Text('Se solicitará retirar el acceso de este dispositivo sin crear un reemplazo.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Confirmar revocación')),
+        ],
+      ),
+    );
+    if (confirmar != true || !mounted || ocupado || consultando || revocacionSolicitada) return;
+    timer?.cancel();
+    revisionPerfil++;
+    setState(() {
+      ocupado = true;
+      revocacionSolicitada = true;
+      vpn = null;
+      conexion = null;
+      error = null;
+      operacion = {'estado': 'SIN_CONFIRMAR'};
+    });
+    try {
+      final respuesta = await widget.api.revocar(widget.red.id, widget.equipo.id);
+      if (!mounted) return;
+      setState(() => operacion = respuesta);
+      // Se conserva PENDIENTE; solo el servidor puede confirmar la aplicación.
+    } catch (e) {
+      if (mounted) setState(() => error = mensajeSeguro(e));
+      // Un fallo de transporte no demuestra que el servidor rechazó la orden.
+    } finally {
+      if (mounted) setState(() => ocupado = false);
+    }
+  }
+
   Future<void> solicitar() async {
-    if (ocupado ||
+    if (revocacionSolicitada || ocupado ||
         !propietario ||
         !widget.equipo.activo ||
         !permiteEmision ||
@@ -989,13 +1030,15 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 'Solo el propietario de la red o del dispositivo puede obtener su configuración.',
               ),
             if (error != null) aviso(error!, esError: true),
-            if (operacion != null)
+            if (revocacionSolicitada)
+              aviso('Revocación: ${operacion?['estado'] ?? 'SIN_CONFIRMAR'}. Verifica la operación en el servidor; este panel no mide el bloqueo de tráfico.'),
+            if (operacion != null && !revocacionSolicitada)
               aviso(
                 operacion!['estado'] == 'SIN_CONFIRMAR'
                     ? 'Emisión sin confirmar. No repitas la solicitud hasta verificar en el servidor si se registró; no se habilitará la entrega del perfil anterior.'
                     : 'Operación: ${operacion!['estado'] ?? 'PENDIENTE'}. ${terminal ? '' : 'Todavía no confirma la aplicación del perfil.'}',
               ),
-            ResumenVpn(
+            if (!revocacionSolicitada) ResumenVpn(
               operacion: operacion,
               modo: modoTunel,
               conexion: conexion,
@@ -1007,7 +1050,11 @@ class _EquipoDialogState extends State<EquipoDialog> {
               if (vpn!['direccionIp'] != null)
                 Text('IP asignada: ${vpn!['direccionIp']}'),
             ],
-            if (propietario && widget.equipo.activo) ...[
+            if (propietario && widget.equipo.activo && !revocacionSolicitada) ...[
+              OutlinedButton(
+                onPressed: ocupado || consultando || widget.cuenta.estado != 'ACTIVO' ? null : revocarDispositivo,
+                child: const Text('Revocar dispositivo'),
+              ),
               const SizedBox(height: 16),
               FilledButton(
                 onPressed:
@@ -1033,7 +1080,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
                     : actualizarOperacion,
                 child: const Text('Actualizar operación'),
               ),
-            if (acceso && widget.equipo.activo) ...[
+            if (acceso && widget.equipo.activo && !revocacionSolicitada) ...[
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 icon: const Icon(Icons.qr_code),
@@ -1062,7 +1109,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 child: const Text('Consultar actividad observada'),
               ),
             ],
-            if (propietario && widget.equipo.activo)
+            if (propietario && widget.equipo.activo && !revocacionSolicitada)
               TextButton(
                 onPressed: ocupado ? null : reponer,
                 child: const Text('Reponer un perfil perdido'),
@@ -1080,6 +1127,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   );
 
   Future<void> reponer() async {
+    if (revocacionSolicitada || ocupado || !propietario) return;
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -1329,6 +1377,44 @@ class AuditoriaDialog extends StatefulWidget {
 }
 
 class _AuditoriaDialogState extends State<AuditoriaDialog> {
+  final usuario = TextEditingController();
+  final desde = TextEditingController();
+  final hasta = TextEditingController();
+  String filtroUsuario = '';
+  DateTime? inicio, fin;
+  String? errorFiltros;
+  @override
+  void dispose() {
+    usuario.dispose(); desde.dispose(); hasta.dispose();
+    super.dispose();
+  }
+  DateTime? fechaFiltro(String texto) {
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(texto)) return null;
+    final fecha = DateTime.tryParse('${texto}T00:00:00Z');
+    return fecha != null && fecha.toIso8601String().startsWith(texto) ? fecha : null;
+  }
+  void aplicarFiltros() {
+    final a = desde.text.trim(), b = hasta.text.trim(), u = usuario.text.trim();
+    final d = fechaFiltro(a), h = fechaFiltro(b);
+    setState(() {
+      if ((u.isNotEmpty && !RegExp(r'^[1-9]\d*$').hasMatch(u)) ||
+          (a.isNotEmpty && d == null) || (b.isNotEmpty && h == null) ||
+          (d != null && h != null && d.isAfter(h))) {
+        errorFiltros = 'Usa un ID positivo y fechas válidas AAAA-MM-DD, desde antes de hasta.';
+        return;
+      }
+      errorFiltros = null;
+      filtroUsuario = u; inicio = d; fin = h?.add(const Duration(days: 1));
+    });
+  }
+  bool coincide(Map<String, dynamic> evento) {
+    if (filtroUsuario.isNotEmpty &&
+        '${evento['usuarioId'] ?? evento['actorId']}' != filtroUsuario) return false;
+    if (inicio == null && fin == null) return true;
+    final fecha = DateTime.tryParse('${evento['fecha'] ?? evento['fechaEvento']}');
+    return fecha != null && (inicio == null || !fecha.isBefore(inicio!)) &&
+        (fin == null || fecha.isBefore(fin!));
+  }
   late Future<List<Map<String, dynamic>>> datos = widget.api.auditoria(
     widget.redId,
   );
@@ -1337,8 +1423,15 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
     title: const Text('Auditoría de la red'),
     content: SizedBox(
       width: 640,
-      height: 400,
-      child: FutureBuilder(
+      height: 600,
+      child: Column(children: [
+        const Text('Filtros sobre los primeros 20 eventos cargados. Fechas en UTC.'),
+        TextFormField(controller: usuario, decoration: const InputDecoration(labelText: 'Usuario')),
+        TextFormField(controller: desde, decoration: const InputDecoration(labelText: 'Desde', hintText: 'AAAA-MM-DD')),
+        TextFormField(controller: hasta, decoration: const InputDecoration(labelText: 'Hasta', hintText: 'AAAA-MM-DD')),
+        TextButton(onPressed: aplicarFiltros, child: const Text('Aplicar filtros')),
+        if (errorFiltros != null) Text(errorFiltros!),
+        Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(
         future: datos,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -1355,7 +1448,7 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
               ],
             );
           }
-          if (!snapshot.hasData) {
+          if (snapshot.connectionState != ConnectionState.done || !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.data!.isEmpty) {
@@ -1363,9 +1456,11 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
               child: Text('No hay eventos disponibles para esta red.'),
             );
           }
+          final visibles = snapshot.data!.where(coincide).toList();
+          if (visibles.isEmpty) return const Center(child: Text('Sin eventos para estos filtros.'));
           return ListView(
             children: [
-              for (final evento in snapshot.data!)
+              for (final evento in visibles)
                 ListTile(
                   title: Text(
                     '${evento['accion'] ?? 'Operación'} · ${evento['resultado'] ?? ''}',
@@ -1377,7 +1472,8 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
             ],
           );
         },
-      ),
+        )),
+      ]),
     ),
     actions: [
       TextButton(
