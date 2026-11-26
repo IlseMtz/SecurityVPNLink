@@ -68,6 +68,14 @@ El dominio `chatgpt.site` pertenece al alojamiento actual. Cambiar de proveedor/
 
 ## Backend y desarrollo local
 
+Para ejecutar la aplicación web en Windows, desde la raíz del proyecto:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tool\ejecutar_web.ps1
+```
+
+Abre `http://127.0.0.1:8765` y deja la terminal abierta. El script usa Flutter desde `.tools/flutter` si existe, o desde el PATH, y requiere Node.js. Sirve la aplicación y el intermediario de Azure en la misma dirección. Para reutilizar la última compilación, agrega `-SinCompilar`. Para usar otro puerto, agrega `-Puerto 8766`. Detén el servidor con `Ctrl+C`.
+
 Backend: https://nero.northcentralus.cloudapp.azure.com/api/v1
 
 El contrato vigente usa `/redes/{redId}/dispositivos`, configuración, QR, operaciones VPN y auditoría. El formulario usa WINDOWS, ANDROID, IOS, LINUX o MACOS. No utiliza el antiguo POST `/dispositivos`.

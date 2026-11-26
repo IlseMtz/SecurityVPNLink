@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 import 'dispositivos.dart';
@@ -98,15 +99,14 @@ class AzureApi {
     this.alCaducar,
     this.limite = const Duration(seconds: 20),
   }) : _cliente = cliente ?? http.Client(),
-       baseUrl =
-           baseUrl ??
-           Uri.parse(
-             const String.fromEnvironment(
-               'SECURELINK_API_URL',
-               defaultValue: urlAzure,
-             ),
-           ) {
-    if (this.baseUrl.scheme != 'https' ||
+       baseUrl = baseUrl ?? _resolverApiConfigurada() {
+    final esLocal =
+        baseUrl == null &&
+        kIsWeb &&
+        _apiConfigurada == '/api/v1' &&
+        this.baseUrl.scheme == 'http' &&
+        this.baseUrl.host == '127.0.0.1';
+    if ((this.baseUrl.scheme != 'https' && !esLocal) ||
         this.baseUrl.host.isEmpty ||
         this.baseUrl.userInfo.isNotEmpty ||
         this.baseUrl.hasQuery ||
@@ -114,6 +114,15 @@ class AzureApi {
       throw ArgumentError('La API requiere una URL HTTPS sin credenciales.');
     }
   }
+
+  static const _apiConfigurada = String.fromEnvironment(
+    'SECURELINK_API_URL',
+    defaultValue: urlAzure,
+  );
+
+  static Uri _resolverApiConfigurada() => kIsWeb && _apiConfigurada == '/api/v1'
+      ? Uri.base.resolve(_apiConfigurada)
+      : Uri.parse(_apiConfigurada);
   final http.Client _cliente;
   final Uri baseUrl;
   final String? Function() obtenerToken;
