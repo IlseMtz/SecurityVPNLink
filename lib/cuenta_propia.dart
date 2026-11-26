@@ -67,6 +67,7 @@ class _MiCuentaDialogState extends State<MiCuentaDialog> {
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               Text(cuenta.correo),
+              Text('ID de usuario: ${cuenta.id}'),
               Text('Estado: ${cuenta.estado}'),
               const SizedBox(height: 16),
               OutlinedButton(

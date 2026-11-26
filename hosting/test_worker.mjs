@@ -40,6 +40,29 @@ test('VS-8 reenvía cuenta propia solo con los métodos del contrato', async () 
   }
   assert.deepEqual(llamadas, rutas.map(([method, ruta]) => [method, '/api/v1' + ruta]));
 });
+test('VS-39 reenvía únicamente las rutas y métodos administrativos acordados', async () => {
+  const uuid = '01234567-89ab-4def-8123-0123456789ab';
+  const posts = ['edicion', 'suspension', 'reactivacion', 'eliminacion',
+    'dispositivos/20/edicion', 'miembros/2/retiro'];
+  const calls = [];
+  const worker = crearWorker({enviar: async (url, opciones) => {
+    calls.push([new URL(url).pathname, opciones.method, opciones.headers.get('Authorization')]);
+    return Response.json({});
+  }});
+  const request = (ruta, method) => new Request(`https://frontend.test/api/v1/redes/10/${ruta}`, {
+    method, headers: {Authorization: 'Bearer ficticio'},
+  });
+  for (const ruta of posts) {
+    assert.equal((await worker.fetch(request(ruta, 'POST'))).status, 200);
+    assert.equal((await worker.fetch(request(ruta, 'GET'))).status, 404);
+  }
+  const operacion = `operaciones-administrativas/${uuid}`;
+  assert.equal((await worker.fetch(request(operacion, 'GET'))).status, 200);
+  assert.equal((await worker.fetch(request(operacion, 'POST'))).status, 404);
+  assert.equal((await worker.fetch(request('operaciones-administrativas/incorrecto', 'GET'))).status, 404);
+  assert.deepEqual(calls, [...posts.map(ruta => [`/api/v1/redes/10/${ruta}`, 'POST', 'Bearer ficticio']),
+    [`/api/v1/redes/10/${operacion}`, 'GET', 'Bearer ficticio']]);
+});
 test('no sigue redirecciones ni expone Location con tokens',async()=>{
  const w=crearWorker({enviar:async(_,op)=>{assert.equal(op.redirect,'manual');return new Response(null,{status:302,headers:{Location:'https://otro.test'}});}});
  const r=await w.fetch(new Request('https://frontend.test/api/v1/usuarios/me'));assert.equal(r.status,302);assert.equal(r.headers.get('location'),null);
