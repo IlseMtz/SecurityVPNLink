@@ -16,10 +16,11 @@ class LimitesRedDialog extends StatefulWidget {
 class _LimitesRedDialogState extends State<LimitesRedDialog> {
   late Future<LimitesRed> carga = widget.api.limitesRed(widget.red.id);
   int? seleccionado;
+  String? modoSeleccionado;
   bool guardando = false;
   String? error;
 
-  Future<void> guardar(LimitesRed actual, int limite) async {
+  Future<void> guardar(LimitesRed actual, int limite, String modo) async {
     setState(() {
       guardando = true;
       error = null;
@@ -29,6 +30,7 @@ class _LimitesRedDialogState extends State<LimitesRedDialog> {
         widget.red.id,
         limite,
         actual.version,
+        modo,
       );
       if (mounted) Navigator.pop(context);
     } on ExcepcionApi catch (e) {
@@ -49,6 +51,7 @@ class _LimitesRedDialogState extends State<LimitesRedDialog> {
   void recargar() => setState(() {
     error = null;
     seleccionado = null;
+    modoSeleccionado = null;
     carga = widget.api.limitesRed(widget.red.id);
   });
 
@@ -60,6 +63,7 @@ class _LimitesRedDialogState extends State<LimitesRedDialog> {
           ? snapshot.data
           : null;
       final limite = seleccionado ?? datos?.limiteEquiposUsuario;
+      final modo = modoSeleccionado ?? datos?.modoTunel;
       return AlertDialog(
         title: const Text('Límites de la red'),
         scrollable: true,
@@ -75,6 +79,21 @@ class _LimitesRedDialogState extends State<LimitesRedDialog> {
                 'No se pudieron consultar los límites en este servidor.',
               )
             else ...[
+              DropdownButtonFormField<String>(
+                key: ValueKey('modo-${datos.version}'),
+                initialValue: datos.modoTunel,
+                decoration: const InputDecoration(
+                  labelText: 'Modalidad para nuevos perfiles',
+                ),
+                onChanged: guardando
+                    ? null
+                    : (valor) => setState(() => modoSeleccionado = valor),
+                items: const [
+                  DropdownMenuItem(value: 'FULL', child: Text('Full Tunnel')),
+                  DropdownMenuItem(value: 'SPLIT', child: Text('Split Tunnel')),
+                ],
+              ),
+              const SizedBox(height: 12),
               const Text('Hasta cinco dispositivos por red.'),
               DropdownButtonFormField<int>(
                 key: ValueKey(datos.version),
@@ -110,11 +129,14 @@ class _LimitesRedDialogState extends State<LimitesRedDialog> {
             onPressed: guardando ? null : () => Navigator.pop(context),
             child: const Text('Cerrar'),
           ),
-          if (datos != null && limite != null)
+          if (datos != null && limite != null && modo != null)
             FilledButton(
-              onPressed: guardando || limite == datos.limiteEquiposUsuario
+              onPressed:
+                  guardando ||
+                      (limite == datos.limiteEquiposUsuario &&
+                          modo == datos.modoTunel)
                   ? null
-                  : () => guardar(datos, limite),
+                  : () => guardar(datos, limite, modo),
               child: const Text('Guardar'),
             ),
         ],

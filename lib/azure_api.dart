@@ -65,10 +65,12 @@ class LimitesRed {
         ocupadosPorUsuario = Map<String, int>.unmodifiable(
           objetoJson(json['ocupadosPorUsuario']).cast<String, int>(),
         ),
-        version = json['version'] as int;
+        version = json['version'] as int,
+        modoTunel = json['modoTunel'] as String;
 
   final int limiteEquiposUsuario;
   final Map<String, int> ocupadosPorUsuario;
+  final String modoTunel;
   final int version;
 }
 
@@ -316,10 +318,10 @@ class AzureApi {
     objetoJson(await _json('GET', 'redes/$redId/limites')),
   );
 
-  Future<LimitesRed> actualizarLimitesRed(int redId, int limite, int version) async =>
+  Future<LimitesRed> actualizarLimitesRed(int redId, int limite, int version, String modoTunel) async =>
     LimitesRed.fromJson(objetoJson(await _json(
       'POST', 'redes/$redId/limites',
-      datos: {'limiteEquiposUsuario': limite, 'version': version},
+      datos: {'limiteEquiposUsuario': limite, 'version': version, 'modoTunel': modoTunel},
     )));
 
   Future<List<RedAzure>> redes() async =>

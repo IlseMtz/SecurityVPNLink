@@ -1,11 +1,12 @@
-# VS-21 — Cupos por usuario
+# VS-21 — Política de perfiles y cupos
 
-Esta actualización parte de NetworkService y ManagementController de la entrega V6 de administración. Aplicar la migración al esquema de laboratorio antes de arrancar el backend con el parche. Desde la raíz del código Spring, ejecutar primero git apply --check con el parche y aplicar solo si la revisión pasa.
+Esta actualización parte de la entrega V6 de administración. Aplicar la migración al esquema de laboratorio y después aplicar cupos-v6.patch seguido de modalidad-v6.patch en la raíz del código Spring. Comprobar cada parche con git apply --check antes de aplicarlo. Verificar las configuraciones y los QR generados antes de desplegar.
 
-- GET /api/v1/redes/{redId}/limites devuelve limiteEquiposUsuario, ocupadosPorUsuario y version al propietario.
-- POST /api/v1/redes/{redId}/limites recibe limiteEquiposUsuario entre 1 y 5 y la version anterior de la red. Devuelve los límites y la nueva versión.
-- El cupo por usuario cuenta dispositivos que conservan un cupo de red. El máximo de cinco equipos por red se mantiene. La revisión y el alta toman el mismo bloqueo de fila de la red.
-- Las redes existentes conservan un límite de cinco. Reducir el límite por debajo de una ocupación existente devuelve 409. Un alta por encima del límite devuelve 409 LIMITE_EQUIPOS_USUARIO. Cambiar con una versión obsoleta devuelve 409 VERSION_DESACTUALIZADA.
-- Validar con dos solicitudes paralelas para el mismo usuario cuando quede un cupo, con otro usuario en la misma red y con un actor ajeno. Verificar que revocar un perfil solo libera cupo cuando el flujo de baja del dispositivo efectivamente lo vacía.
+- GET /api/v1/redes/{redId}/limites devuelve limiteEquiposUsuario, ocupadosPorUsuario, modoTunel y version al propietario.
+- POST en la misma ruta recibe limiteEquiposUsuario de 1 a 5, modoTunel FULL o SPLIT y la versión anterior de la red.
+- Full usa la salida IPv4 de Azure, los DNS del perfil y la captura de IPv6 que filtra el servidor. Split envía solo la subred IPv4 de la red SecureLink. El cliente conserva sus rutas y DNS locales y su IPv6 fuera del túnel.
+- El modo se guarda cuando se crea el registro de configuración. Los perfiles que ya tienen registro conservan su modalidad, también si se descargan más tarde. Las reglas del servidor siguen aislando las redes.
+- El cupo cuenta los dispositivos con un cupo de red. El máximo de cinco equipos por red se conserva y la actualización y el alta toman el mismo bloqueo de fila. El límite por persona empieza en cinco también en redes existentes.
+- Un límite inferior a una ocupación existente devuelve 409 LIMITE_INFERIOR_A_OCUPACION. El alta que rebasa el cupo devuelve 409 LIMITE_EQUIPOS_USUARIO. Una actualización con una versión obsoleta devuelve 409 VERSION_DESACTUALIZADA.
 
-Pendiente del resto de VS-21: colección Postman, selección de Split/Full por perfil nuevo, política DNS e IPv6 y límite sobre actividad de WireGuard. La actividad observada por handshake requiere una ventana definida y no equivale a una sesión. Estos cambios se verifican en otro incremento antes de cerrar la historia.
+Verificar ambos perfiles y QR, las rutas y DNS efectivos de los clientes, el aislamiento, las descargas de perfiles existentes y dos altas concurrentes con un solo cupo libre. Quedan pendientes la validación contra el backend desplegado y la política de límites sobre actividad observada. La observación por handshake no identifica de forma exacta una sesión conectada.

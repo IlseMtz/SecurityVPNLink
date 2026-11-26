@@ -1,0 +1,62 @@
+{
+  "info": {
+    "name": "SecureLink VS-21",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://nero.northcentralus.cloudapp.azure.com/api/v1"
+    },
+    {
+      "key": "redId",
+      "value": "1"
+    },
+    {
+      "key": "versionRed",
+      "value": "0"
+    }
+  ],
+  "item": [
+    {
+      "name": "Consultar política y uso de cupos",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/redes/{{redId}}/limites"
+      }
+    },
+    {
+      "name": "Actualizar política y límite por usuario",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": "{{baseUrl}}/redes/{{redId}}/limites",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"limiteEquiposUsuario\": 3,\n  \"modoTunel\": \"SPLIT\",\n  \"version\": {{versionRed}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
