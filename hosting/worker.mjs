@@ -7,6 +7,7 @@ const headersPrivados = {'Cache-Control':'no-store, private', 'Pragma':'no-cache
 function rutaPermitida(path, method) {
   if (/^\/api\/v1\/(auth\/(login|logout|registro)|usuarios\/me\/(perfil|contrasena))$/.test(path)) return method === 'POST';
   if (path === '/api/v1/usuarios/me') return method === 'GET';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/limites$/.test(path)) return ['GET','POST'].includes(method);
   if (path === '/api/v1/administracion/recursos') return method === 'GET' || method === 'POST';
   if (/^\/api\/v1\/administracion\/recursos\/[1-9]\d*$/.test(path)) return method === 'POST';
   if (/^\/api\/v1\/redes\/[1-9]\d*\/recursos$/.test(path)) return method === 'GET';

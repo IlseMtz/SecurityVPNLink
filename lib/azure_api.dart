@@ -59,6 +59,21 @@ class PaginaAzure {
   bool get haySiguiente => total == null ? items.length == tamano : (pagina + 1) * tamano < total!;
 }
 
+class LimitesRed {
+  LimitesRed.fromJson(Map<String, dynamic> json)
+      : limiteEquiposUsuario = json['limiteEquiposUsuario'] as int,
+        ocupadosPorUsuario = Map<String, int>.unmodifiable(
+          objetoJson(json['ocupadosPorUsuario']).cast<String, int>(),
+        ),
+        version = json['version'] as int,
+        modoTunel = json['modoTunel'] as String;
+
+  final int limiteEquiposUsuario;
+  final Map<String, int> ocupadosPorUsuario;
+  final String modoTunel;
+  final int version;
+}
+
 class RedAzure {
   RedAzure.fromJson(Map<String, dynamic> json)
     : id = idJson(json['id']),
@@ -354,6 +369,16 @@ class AzureApi {
       throw const ExcepcionApi(400, 'CONTRASENA_ACTUAL_INCORRECTA');
     }
   }
+
+  Future<LimitesRed> limitesRed(int redId) async => LimitesRed.fromJson(
+    objetoJson(await _json('GET', 'redes/$redId/limites')),
+  );
+
+  Future<LimitesRed> actualizarLimitesRed(int redId, int limite, int version, String modoTunel) async =>
+    LimitesRed.fromJson(objetoJson(await _json(
+      'POST', 'redes/$redId/limites',
+      datos: {'limiteEquiposUsuario': limite, 'version': version, 'modoTunel': modoTunel},
+    )));
 
   Future<List<T>> _listar<T>(String ruta, T Function(Map<String, dynamic>) convertir, int Function(T) id) async {
     const tamano = 20;

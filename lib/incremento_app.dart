@@ -16,6 +16,7 @@ import 'reposicion_perfil.dart';
 import 'api_error.dart' show ExcepcionApi;
 import 'tema_securelink.dart';
 import 'cuenta_propia.dart';
+import 'limites_red.dart';
 import 'administrar_red.dart';
 
 class IncrementoApp extends StatefulWidget {
@@ -701,6 +702,18 @@ class _RedesPageState extends State<RedesPage> {
                         ),
                     ],
                   ),
+                  if (propietario)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => showDialog<void>(
+                          context: context,
+                          builder: (_) => LimitesRedDialog(api: api, red: red!),
+                        ),
+                        icon: const Icon(Icons.tune),
+                        label: const Text('Límites de la red'),
+                      ),
+                    ),
                   if (propietario) Text('$equiposHabilitados de 5 dispositivos habilitados.'),
                   if (!propietario)
                     const Padding(
