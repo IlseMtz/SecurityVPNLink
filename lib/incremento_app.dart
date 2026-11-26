@@ -1,10 +1,12 @@
 import 'administracion_cuentas.dart';
 import 'resumen_vpn.dart';
 import 'estado_emision_vpn.dart';
+import 'reporte_auditoria.dart';
 
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'azure_api.dart';
@@ -1505,14 +1507,16 @@ class AuditoriaDialog extends StatefulWidget {
 
 class _AuditoriaDialogState extends State<AuditoriaDialog> {
   final usuario = TextEditingController();
+  final dispositivo = TextEditingController();
   final desde = TextEditingController();
   final hasta = TextEditingController();
   String filtroUsuario = '';
+  String filtroDispositivo = '';
   DateTime? inicio, fin;
   String? errorFiltros;
   @override
   void dispose() {
-    usuario.dispose(); desde.dispose(); hasta.dispose();
+    usuario.dispose(); dispositivo.dispose(); desde.dispose(); hasta.dispose();
     super.dispose();
   }
   DateTime? fechaFiltro(String texto) {
@@ -1523,15 +1527,18 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
   void aplicarFiltros() {
     final a = desde.text.trim(), b = hasta.text.trim(), u = usuario.text.trim();
     final d = fechaFiltro(a), h = fechaFiltro(b);
+    final equipo = dispositivo.text.trim();
+    bool idInvalido(String id) => id.isNotEmpty &&
+        (!RegExp(r'^[1-9]\d*$').hasMatch(id) || int.tryParse(id) == null);
     setState(() {
-      if ((u.isNotEmpty && (!RegExp(r'^[1-9]\d*$').hasMatch(u) || int.tryParse(u) == null)) ||
+      if (idInvalido(u) || idInvalido(equipo) ||
           (a.isNotEmpty && d == null) || (b.isNotEmpty && h == null) ||
           (d != null && h != null && d.isAfter(h))) {
         errorFiltros = 'Usa un ID positivo y fechas válidas AAAA-MM-DD, desde antes de hasta.';
         return;
       }
       errorFiltros = null;
-      filtroUsuario = u; inicio = d; fin = h?.add(const Duration(days: 1));
+      filtroUsuario = u; filtroDispositivo = equipo; inicio = d; fin = h?.add(const Duration(days: 1));
       pagina = 0;
       datos = cargar();
     });
@@ -1539,15 +1546,34 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
   bool coincide(Map<String, dynamic> evento) {
     if (filtroUsuario.isNotEmpty &&
         '${evento['usuarioId'] ?? evento['actorId']}' != filtroUsuario) return false;
+    if (filtroDispositivo.isNotEmpty &&
+        (evento['objetoTipo'] != 'DISPOSITIVO' ||
+        evento['objetoId'].toString() != filtroDispositivo)) return false;
     if (inicio == null && fin == null) return true;
     final fecha = DateTime.tryParse('${evento['fecha'] ?? evento['fechaEvento']}');
     return fecha != null && (inicio == null || !fecha.isBefore(inicio!)) &&
         (fin == null || fecha.isBefore(fin!));
   }
+  Future<void> exportarPagina(List<Map<String, dynamic>> eventos, {bool pdf = false}) async {
+    if (!kIsWeb) return;
+    try {
+      await guardarConfiguracion(
+        pdf ? await pdfAuditoria(eventos) : csvAuditoria(eventos),
+        'securelink-auditoria-pagina-${pagina + 1}.${pdf ? 'pdf' : 'csv'}',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo descargar el reporte.')),
+      );
+    }
+  }
+
   int pagina = 0;
   Future<PaginaAzure> cargar() => widget.api.paginaAuditoria(
     redId: widget.redId, pagina: pagina,
     usuarioId: filtroUsuario.isEmpty ? null : int.parse(filtroUsuario),
+    dispositivoId: int.tryParse(filtroDispositivo),
     desde: inicio, hasta: fin?.subtract(const Duration(milliseconds: 1)));
   late Future<PaginaAzure> datos = cargar();
   void cambiarPagina(int nueva) => setState(() { pagina = nueva; datos = cargar(); });
@@ -1560,11 +1586,12 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
       child: Column(children: [
         const Text('Busca en el historial del servidor. Fechas en UTC.'),
         TextFormField(controller: usuario, decoration: const InputDecoration(labelText: 'Usuario')),
+        TextFormField(controller: dispositivo, decoration: const InputDecoration(labelText: 'Dispositivo')),
         TextFormField(controller: desde, decoration: const InputDecoration(labelText: 'Desde', hintText: 'AAAA-MM-DD')),
         TextFormField(controller: hasta, decoration: const InputDecoration(labelText: 'Hasta', hintText: 'AAAA-MM-DD')),
         Wrap(children: [
           TextButton(onPressed: aplicarFiltros, child: const Text('Aplicar filtros')),
-          TextButton(onPressed: () { usuario.clear(); desde.clear(); hasta.clear(); aplicarFiltros(); },
+          TextButton(onPressed: () { usuario.clear(); dispositivo.clear(); desde.clear(); hasta.clear(); aplicarFiltros(); },
             child: const Text('Limpiar filtros')),
         ]),
         if (errorFiltros != null) Text(errorFiltros!),
@@ -1608,6 +1635,17 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
                   ),
                 ),
             ])),
+            if (kIsWeb)
+              Wrap(
+                children: [
+                  for (final formato in ['CSV', 'PDF'])
+                    TextButton.icon(
+                      onPressed: visibles.isEmpty ? null : () => exportarPagina(visibles, pdf: formato == 'PDF'),
+                      icon: const Icon(Icons.download),
+                      label: Text('Exportar esta página ($formato)'),
+                    ),
+                ],
+              ),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(tooltip: 'Página anterior', onPressed: pagina > 0 ? () => cambiarPagina(pagina - 1) : null,
                 icon: const Icon(Icons.chevron_left)),

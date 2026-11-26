@@ -1,0 +1,48 @@
+{
+  "info": {
+    "name": "SecureLink VS-23",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://nero.northcentralus.cloudapp.azure.com/api/v1"
+    },
+    {
+      "key": "redId",
+      "value": "1"
+    },
+    {
+      "key": "dispositivoId",
+      "value": "1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auditoría global por dispositivo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/auditoria?dispositivoId={{dispositivoId}}&page=0&size=20"
+      }
+    },
+    {
+      "name": "Auditoría de una red por dispositivo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "{{baseUrl}}/redes/{{redId}}/auditoria?dispositivoId={{dispositivoId}}&page=0&size=20"
+      }
+    }
+  ]
+}
