@@ -1,0 +1,14 @@
+{
+  "historia": "VS-35",
+  "version": "Sites 2",
+  "commit": "bde5660d4f0b2ce827bef822bac5832a7008d81a",
+  "url": "https://securelink-equipo1-incremento1-20261122.khakihymn8.chatgpt.site",
+  "projectId": "appgprj_6b0313ccc5d081919910e30c7f9ece80",
+  "versionId": "appgprj_6b0313ccc5d081919910e30c7f9ece80~appgver_68a9fb0b14048191b05fa6811d4ff033",
+  "deploymentId": "appgdep_6b03941f05ec81919070def6847e14b7",
+  "consulta": "2026-11-25",
+  "responsable": "Ricardo Almada",
+  "piloto": "Ricardo Almada",
+  "copiloto": "Jaime Lopez",
+  "alcance": "Version web publicada; no acredita las pruebas fisicas de WireGuard ni la aceptacion humana."
+}
