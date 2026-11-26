@@ -1,3 +1,4 @@
+import 'administracion_cuentas.dart';
 import 'resumen_vpn.dart';
 import 'estado_emision_vpn.dart';
 
@@ -489,6 +490,19 @@ class _RedesPageState extends State<RedesPage> {
                   ],
                 ),
                 const SizedBox(height: 24),
+                Wrap(spacing: 12, runSpacing: 8, children: [
+                  if (cuenta.administraCuentas)
+                    OutlinedButton.icon(icon: const Icon(Icons.manage_accounts),
+                      label: const Text('Administrar cuentas'),
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => AdministracionCuentasPage(api: api, cuentaActual: cuenta)))),
+                  if (cuenta.consultaAuditoria)
+                    OutlinedButton.icon(icon: const Icon(Icons.history),
+                      label: const Text('Auditoría global'),
+                      onPressed: () => showDialog<void>(context: context,
+                        builder: (_) => AuditoriaDialog(api: api))),
+                ]),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 12,
                   runSpacing: 12,
@@ -566,8 +580,6 @@ class _RedesPageState extends State<RedesPage> {
                   aviso(
                     'Estado de la red: ${red!.estado}. ${red!.cidr == null ? 'La subred se asignará con la primera configuración aplicada.' : 'Subred: ${red!.cidr}.'} Un dispositivo habilitado no equivale a una conexión activa.',
                   ),
-                  const Text('Recurso de laboratorio: 172.30.77.10 · TCP/80'),
-                  const Text('La administración de permisos de este recurso aún no está disponible en el panel.'),
                   Row(
                     children: [
                       Expanded(
@@ -821,6 +833,8 @@ class _EquipoDialogState extends State<EquipoDialog> {
   String? error;
   bool ocupado = false, consultando = false, redActiva = false;
   Timer? timer;
+  Timer? timerActividad;
+  bool observando = false;
   bool get propietario => widget.red.esPropietario(widget.cuenta);
   bool get acceso => propietario || widget.equipo.usuarioId == widget.cuenta.id;
   bool revocacionSolicitada = false;
@@ -828,7 +842,10 @@ class _EquipoDialogState extends State<EquipoDialog> {
   String? modoTunel;
   String? estadoRed;
   bool get permiteEmision => estadoRed == 'ACTIVA' || estadoRed == 'PENDIENTE';
-  bool get aplicada => !revocacionSolicitada && puedeEntregarPerfil(
+  bool get retiradaPersistida => ['REVOCADA', 'REVOCADO'].contains(vpn?['estadoDeseado']) || ['REVOCADA', 'REVOCADO'].contains(vpn?['estadoAplicado']);
+  bool get bloqueaPerfil => revocacionSolicitada || retiradaPersistida;
+  int consultasRevocacion = 0;
+  bool get aplicada => !bloqueaPerfil && puedeEntregarPerfil(
     redActiva: redActiva,
     dispositivoActivo: widget.equipo.activo,
     cuentaActiva: widget.cuenta.estado == 'ACTIVO',
@@ -848,6 +865,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   @override
   void dispose() {
     timer?.cancel();
+    timerActividad?.cancel();
     super.dispose();
   }
 
@@ -880,7 +898,8 @@ class _EquipoDialogState extends State<EquipoDialog> {
   }
 
   Future<void> revocarDispositivo() async {
-    if (!propietario || ocupado || consultando || revocacionSolicitada ||
+    if (!propietario || ocupado || consultando ||
+        (bloqueaPerfil && !['FALLIDA', 'CANCELADA'].contains(operacion?['estado'])) ||
         !widget.equipo.activo || widget.cuenta.estado != 'ACTIVO') return;
     final confirmar = await showDialog<bool>(
       context: context,
@@ -893,9 +912,11 @@ class _EquipoDialogState extends State<EquipoDialog> {
         ],
       ),
     );
-    if (confirmar != true || !mounted || ocupado || consultando || revocacionSolicitada) return;
+    if (confirmar != true || !mounted || ocupado || consultando) return;
     timer?.cancel();
+    timerActividad?.cancel();
     revisionPerfil++;
+    consultasRevocacion = 0;
     setState(() {
       ocupado = true;
       revocacionSolicitada = true;
@@ -908,7 +929,16 @@ class _EquipoDialogState extends State<EquipoDialog> {
       final respuesta = await widget.api.revocar(widget.red.id, widget.equipo.id);
       if (!mounted) return;
       setState(() => operacion = respuesta);
-      // Se conserva PENDIENTE; solo el servidor puede confirmar la aplicación.
+      // Consultar no equivale a volver a enviar la revocación.
+      if (!terminal && respuesta['id'] is String) {
+        timer = Timer.periodic(const Duration(seconds: 3), (_) {
+          if (++consultasRevocacion > 20) {
+            timer?.cancel();
+          } else {
+            actualizarOperacion();
+          }
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => error = mensajeSeguro(e));
       // Un fallo de transporte no demuestra que el servidor rechazó la orden.
@@ -918,7 +948,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   }
 
   Future<void> solicitar() async {
-    if (revocacionSolicitada || ocupado ||
+    if (bloqueaPerfil || ocupado ||
         !propietario ||
         !widget.equipo.activo ||
         !permiteEmision ||
@@ -970,7 +1000,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
       });
       if (terminal) {
         timer?.cancel();
-        if (nueva['estado'] == 'APLICADA') await consultarVpn();
+        if (nueva['estado'] == 'APLICADA' && !revocacionSolicitada) await consultarVpn();
       }
     } catch (e) {
       timer?.cancel();
@@ -981,7 +1011,15 @@ class _EquipoDialogState extends State<EquipoDialog> {
   }
 
   Future<void> observar() async {
+    if (!mounted || !acceso || bloqueaPerfil || !widget.equipo.activo || observando || ocupado) {
+      return;
+    }
+    timerActividad ??= Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => observar(),
+    );
     setState(() {
+      observando = true;
       ocupado = true;
       error = null;
     });
@@ -991,7 +1029,12 @@ class _EquipoDialogState extends State<EquipoDialog> {
     } catch (e) {
       if (mounted) setState(() => error = mensajeSeguro(e));
     } finally {
-      if (mounted) setState(() => ocupado = false);
+      if (mounted) {
+        setState(() {
+          observando = false;
+          ocupado = false;
+        });
+      }
     }
   }
 
@@ -1014,15 +1057,23 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 'Solo el propietario de la red o del dispositivo puede obtener su configuración.',
               ),
             if (error != null) aviso(error!, esError: true),
-            if (revocacionSolicitada)
-              aviso('Revocación: ${operacion?['estado'] ?? 'SIN_CONFIRMAR'}. Verifica la operación en el servidor; este panel no mide el bloqueo de tráfico.'),
-            if (operacion != null && !revocacionSolicitada)
+            if (bloqueaPerfil) ...[
+              aviso('Revocación: ${operacion?['estado'] ?? vpn?['estadoAplicado'] ?? 'SIN_CONFIRMAR'}. '
+                '${operacion?['estado'] == 'APLICADA' ? 'El servidor confirmó la retirada del perfil.' : 'La entrega de configuración permanece bloqueada. Una solicitud pendiente no confirma la retirada.'}'),
+              if (operacion?['id'] == null)
+                TextButton(onPressed: ocupado ? null : consultarVpn,
+                  child: const Text('Verificar estado del perfil')),
+              if (propietario && ['FALLIDA', 'CANCELADA'].contains(operacion?['estado']))
+                TextButton(onPressed: ocupado || consultando ? null : revocarDispositivo,
+                  child: const Text('Reintentar revocación')),
+            ],
+            if (operacion != null && !bloqueaPerfil)
               aviso(
                 operacion!['estado'] == 'SIN_CONFIRMAR'
                     ? 'Emisión sin confirmar. No repitas la solicitud hasta verificar en el servidor si se registró; no se habilitará la entrega del perfil anterior.'
                     : 'Operación: ${operacion!['estado'] ?? 'PENDIENTE'}. ${terminal ? '' : 'Todavía no confirma la aplicación del perfil.'}',
               ),
-            if (!revocacionSolicitada) ResumenVpn(
+            if (!bloqueaPerfil) ResumenVpn(
               operacion: operacion,
               modo: modoTunel,
               conexion: conexion,
@@ -1034,7 +1085,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
               if (vpn!['direccionIp'] != null)
                 Text('IP asignada: ${vpn!['direccionIp']}'),
             ],
-            if (propietario && widget.equipo.activo && !revocacionSolicitada) ...[
+            if (propietario && widget.equipo.activo && !bloqueaPerfil) ...[
               OutlinedButton(
                 onPressed: ocupado || consultando || widget.cuenta.estado != 'ACTIVO' ? null : revocarDispositivo,
                 child: const Text('Revocar dispositivo'),
@@ -1064,7 +1115,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
                     : actualizarOperacion,
                 child: const Text('Actualizar operación'),
               ),
-            if (acceso && widget.equipo.activo && !revocacionSolicitada) ...[
+            if (acceso && widget.equipo.activo && !bloqueaPerfil) ...[
               const SizedBox(height: 16),
               OutlinedButton.icon(
                 icon: const Icon(Icons.qr_code),
@@ -1093,7 +1144,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
                 child: const Text('Consultar actividad observada'),
               ),
             ],
-            if (propietario && widget.equipo.activo && !revocacionSolicitada)
+            if (propietario && widget.equipo.activo && !bloqueaPerfil)
               TextButton(
                 onPressed: ocupado ? null : reponer,
                 child: const Text('Reponer un perfil perdido'),
@@ -1111,7 +1162,7 @@ class _EquipoDialogState extends State<EquipoDialog> {
   );
 
   Future<void> reponer() async {
-    if (revocacionSolicitada || ocupado || !propietario) return;
+    if (bloqueaPerfil || ocupado || !propietario) return;
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
@@ -1337,7 +1388,7 @@ class _EntregaDialogState extends State<EntregaDialog>
             ],
             const SizedBox(height: 16),
             const Text(
-              'Después de importar, conecta WireGuard y prueba el recurso del laboratorio indicado por el equipo. Descargar un perfil no demuestra por sí solo acceso al recurso.',
+              'Después de importar, conecta WireGuard y verifica la salida IPv4 y el aislamiento entre redes según las indicaciones de tu administrador. Descargar el perfil no confirma una conexión activa.',
             ),
           ],
         ),
@@ -1353,9 +1404,9 @@ class _EntregaDialogState extends State<EntregaDialog>
 }
 
 class AuditoriaDialog extends StatefulWidget {
-  const AuditoriaDialog({super.key, required this.api, required this.redId});
+  const AuditoriaDialog({super.key, required this.api, this.redId});
   final AzureApi api;
-  final int redId;
+  final int? redId;
   @override
   State<AuditoriaDialog> createState() => _AuditoriaDialogState();
 }
@@ -1381,7 +1432,7 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
     final a = desde.text.trim(), b = hasta.text.trim(), u = usuario.text.trim();
     final d = fechaFiltro(a), h = fechaFiltro(b);
     setState(() {
-      if ((u.isNotEmpty && !RegExp(r'^[1-9]\d*$').hasMatch(u)) ||
+      if ((u.isNotEmpty && (!RegExp(r'^[1-9]\d*$').hasMatch(u) || int.tryParse(u) == null)) ||
           (a.isNotEmpty && d == null) || (b.isNotEmpty && h == null) ||
           (d != null && h != null && d.isAfter(h))) {
         errorFiltros = 'Usa un ID positivo y fechas válidas AAAA-MM-DD, desde antes de hasta.';
@@ -1389,6 +1440,8 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
       }
       errorFiltros = null;
       filtroUsuario = u; inicio = d; fin = h?.add(const Duration(days: 1));
+      pagina = 0;
+      datos = cargar();
     });
   }
   bool coincide(Map<String, dynamic> evento) {
@@ -1399,23 +1452,31 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
     return fecha != null && (inicio == null || !fecha.isBefore(inicio!)) &&
         (fin == null || fecha.isBefore(fin!));
   }
-  late Future<List<Map<String, dynamic>>> datos = widget.api.auditoria(
-    widget.redId,
-  );
+  int pagina = 0;
+  Future<PaginaAzure> cargar() => widget.api.paginaAuditoria(
+    redId: widget.redId, pagina: pagina,
+    usuarioId: filtroUsuario.isEmpty ? null : int.parse(filtroUsuario),
+    desde: inicio, hasta: fin?.subtract(const Duration(milliseconds: 1)));
+  late Future<PaginaAzure> datos = cargar();
+  void cambiarPagina(int nueva) => setState(() { pagina = nueva; datos = cargar(); });
   @override
   Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Auditoría de la red'),
+    title: Text(widget.redId == null ? 'Auditoría global' : 'Auditoría de la red'),
     content: SizedBox(
       width: 640,
       height: 600,
       child: Column(children: [
-        const Text('Filtros sobre los primeros 20 eventos cargados. Fechas en UTC.'),
+        const Text('Busca en el historial del servidor. Fechas en UTC.'),
         TextFormField(controller: usuario, decoration: const InputDecoration(labelText: 'Usuario')),
         TextFormField(controller: desde, decoration: const InputDecoration(labelText: 'Desde', hintText: 'AAAA-MM-DD')),
         TextFormField(controller: hasta, decoration: const InputDecoration(labelText: 'Hasta', hintText: 'AAAA-MM-DD')),
-        TextButton(onPressed: aplicarFiltros, child: const Text('Aplicar filtros')),
+        Wrap(children: [
+          TextButton(onPressed: aplicarFiltros, child: const Text('Aplicar filtros')),
+          TextButton(onPressed: () { usuario.clear(); desde.clear(); hasta.clear(); aplicarFiltros(); },
+            child: const Text('Limpiar filtros')),
+        ]),
         if (errorFiltros != null) Text(errorFiltros!),
-        Expanded(child: FutureBuilder<List<Map<String, dynamic>>>(
+        Expanded(child: FutureBuilder<PaginaAzure>(
         future: datos,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -1425,7 +1486,7 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
                 aviso(mensajeSeguro(snapshot.error!), esError: true),
                 TextButton(
                   onPressed: () => setState(
-                    () => datos = widget.api.auditoria(widget.redId),
+                    () => datos = cargar(),
                   ),
                   child: const Text('Reintentar'),
                 ),
@@ -1435,15 +1496,16 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
           if (snapshot.connectionState != ConnectionState.done || !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snapshot.data!.isEmpty) {
+          if (snapshot.data!.items.isEmpty && pagina == 0) {
             return const Center(
-              child: Text('No hay eventos disponibles para esta red.'),
+              child: Text('No hay eventos disponibles para esta consulta.'),
             );
           }
-          final visibles = snapshot.data!.where(coincide).toList();
-          if (visibles.isEmpty) return const Center(child: Text('Sin eventos para estos filtros.'));
-          return ListView(
-            children: [
+          final visibles = snapshot.data!.items.where(coincide).toList();
+          return Column(children: [
+            Expanded(child: visibles.isEmpty
+              ? const Center(child: Text('Sin eventos para estos filtros.'))
+              : ListView(children: [
               for (final evento in visibles)
                 ListTile(
                   title: Text(
@@ -1453,8 +1515,15 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
                     'Actor: ${evento['usuarioId'] ?? evento['actorId'] ?? 'No disponible'} · Objeto: ${evento['objetoId'] ?? evento['entidadId'] ?? 'No disponible'}\n${evento['fecha'] ?? evento['fechaEvento'] ?? ''}',
                   ),
                 ),
-            ],
-          );
+            ])),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              IconButton(tooltip: 'Página anterior', onPressed: pagina > 0 ? () => cambiarPagina(pagina - 1) : null,
+                icon: const Icon(Icons.chevron_left)),
+              Text('Página ${pagina + 1}${snapshot.data!.total == null ? '' : ' · ${snapshot.data!.total} eventos'}'),
+              IconButton(tooltip: 'Página siguiente', onPressed: snapshot.data!.haySiguiente ? () => cambiarPagina(pagina + 1) : null,
+                icon: const Icon(Icons.chevron_right)),
+            ]),
+          ]);
         },
         )),
       ]),
