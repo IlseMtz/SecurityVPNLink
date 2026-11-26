@@ -4,7 +4,10 @@ const upstream = 'https://nero.northcentralus.cloudapp.azure.com';
 const headersPrivados = {'Cache-Control':'no-store, private', 'Pragma':'no-cache',
   'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer'};
 
-function rutaPermitida(path) {
+function rutaPermitida(path, method) {
+  // Ampliación mínima para VS15 y VS24; Azure sigue autorizando cada operación.
+  if (method === 'GET' && /^\/api\/v1\/(auditoria|administracion\/usuarios(?:\/[1-9]\d*(?:\/accesos-vpn)?)?)$/.test(path)) return true;
+  if (method === 'POST' && /^\/api\/v1\/administracion\/usuarios\/[1-9]\d*\/estado$/.test(path)) return true;
   return /^\/api\/v1\/(auth\/(login|logout)|usuarios\/me|redes(?:\/\d+(?:\/(miembros|auditoria|dispositivos(?:\/\d+\/(configuracion(?:\/qr)?|vpn|conexion|revocacion))?|operaciones-vpn\/[0-9a-fA-F-]{36}))?)?)$/.test(path);
 }
 
@@ -12,7 +15,7 @@ export function crearWorker({assetsLocales=assets, revision=engineRevision, envi
   return {async fetch(request) {
     const url=new URL(request.url);
     if(url.pathname.startsWith('/api/')) {
-      if(!rutaPermitida(url.pathname) || !['GET','POST'].includes(request.method))
+      if(!rutaPermitida(url.pathname, request.method) || !['GET','POST'].includes(request.method))
         return Response.json({error:'RUTA_NO_PERMITIDA'},{status:404,headers:headersPrivados});
       const origin=request.headers.get('Origin');
       if(origin && origin!==url.origin)

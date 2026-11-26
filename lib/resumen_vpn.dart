@@ -85,7 +85,7 @@ class ResumenVpn extends StatelessWidget {
     };
     final modoTexto = switch (modo) {
       'FULL' => 'Full Tunnel: el perfil dirige el tráfico de Internet a través de la VPN cuando lo activas en WireGuard.',
-      'SPLIT' => 'Split Tunnel: solo las rutas configuradas deben pasar por la VPN. Verifica las rutas del perfil y el acceso al laboratorio.',
+      'SPLIT' => 'Split Tunnel: solo las rutas configuradas deben pasar por la VPN. Verifica las rutas autorizadas de tu red.',
       _ => 'El servidor no informó un modo de túnel reconocido.',
     };
     final ahora = DateTime.now().toUtc();
@@ -127,7 +127,7 @@ class ResumenVpn extends StatelessWidget {
                     'Último handshake: ${conexion!['ultimoHandshake'] ?? 'Sin registro'}.\n'
                     'Recibidos: ${conexion!['bytesRecibidos'] ?? '—'} bytes. Enviados: ${conexion!['bytesEnviados'] ?? '—'} bytes.\n'
                     'Observado en: ${conexion!['observadoEn'] ?? 'Sin informar'}.\n'
-                    'Esta observación no garantiza acceso al laboratorio.',
+                    'Esta observación no confirma por sí sola la salida IPv4 ni el aislamiento entre redes.',
           actividad ? Colors.green : Colors.blueGrey,
           Icons.network_check,
         ),
