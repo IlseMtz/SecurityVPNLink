@@ -86,6 +86,24 @@ El Worker reenvía solo rutas permitidas al host fijo de Azure; no reenvía cook
 
 ## Alcance y pruebas
 
+### VS-39: administrar redes, miembros y equipos
+
+Desde el panel, usa **Crear red** para indicar nombre y descripción. Selecciona una red propia y abre **Administrar red** para editarla, administrar miembros por ID y solicitar suspensión, reactivación o eliminación. La ventana muestra el UUID y consulta la operación cada cuatro segundos mientras esté abierta. Desde **Operación de …** puedes retomar la consulta durante la sesión, incluso si la red eliminada dejó de aparecer en el selector. En caso de `FALLIDA`, reintenta la misma solicitud. El icono de lápiz del dispositivo permite editar su nombre y sistema operativo. Si el servidor responde `VERSION_SUPERADA`, actualiza los datos antes de volver a enviar.
+
+```powershell
+.\.tools\flutter\bin\flutter.bat test test/vs39_red_test.dart --reporter expanded
+node --test hosting/test_worker.mjs
+```
+
+La aceptación de Azure y WireGuard debe hacerse con cuentas y redes de prueba autorizadas. Usa una cuenta propietaria, una miembro activa y otra ajena. Conserva los UUID y códigos de respuesta como evidencia, sin incluir tokens, archivos de configuración ni QR en las capturas.
+
+1. Crea tres redes propias y verifica que la cuarta se rechaza en Azure. Una red nueva debe comenzar `PENDIENTE` sin CIDR. Comprueba que la cuenta miembro solo vea las redes a las que pertenece. Edita una red y un equipo con su versión vigente, luego verifica `409 VERSION_SUPERADA` con la anterior. Repite la edición como miembro y comprueba el rechazo del servidor.
+2. Agrega a la cuenta miembro y registra equipos hasta cinco habilitados. Comprueba en Azure el rechazo del sexto. Solicita un perfil, espera `APLICADA` en `operaciones-vpn` y confirma que la red ya tiene CIDR. Descarga el `.conf` u obtén el QR desde Flutter e impórtalo en WireGuard. Comprueba handshake, salida IPv4 por Azure y acceso permitido dentro de la red. Usa un recurso de prueba de otra red para verificar aislamiento. La cuenta ajena debe recibir un rechazo al solicitar el perfil o la consulta de operaciones.
+3. Suspende y reactiva la red de prueba. Anota el UUID de cada acción y confirma `APLICADA` en `operaciones-administrativas`. Comprueba que la suspensión conserva cupos y que la reactivación solo restaura perfiles vigentes. Ante un `FALLIDA` en un entorno de pruebas, corrige la causa y reintenta la misma acción.
+4. Retira al miembro de una red de prueba y verifica que sus peers de esa red se revocan y los cupos se liberan después de `APLICADA`. Comprueba que su perfil en otra red sigue vigente y que el propietario no puede retirarse a sí mismo. Por último, elimina una red de prueba y verifica la retirada de sus peers y la liberación del cupo de red al confirmarse la operación.
+
+### VS-8: cuenta propia y autenticación
+
 VS-8 cubre las peticiones 02–07 de la guía V6. Usa **Crear cuenta** desde el inicio de sesión y **Mi cuenta** desde la barra del panel para consultar el perfil, editar el nombre o correo y cambiar la contraseña. Las dos ediciones y el cierre de todas las sesiones requieren volver a entrar. El registro deja al usuario en el formulario de acceso. La asignación del rol `USUARIO_VPN`, la emisión del JWT y su invalidación corresponden a Azure.
 
 Para reproducir la evidencia automatizada de VS-8 desde PowerShell:
