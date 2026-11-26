@@ -59,6 +59,19 @@ class PaginaAzure {
   bool get haySiguiente => total == null ? items.length == tamano : (pagina + 1) * tamano < total!;
 }
 
+class LimitesRed {
+  LimitesRed.fromJson(Map<String, dynamic> json)
+      : limiteEquiposUsuario = json['limiteEquiposUsuario'] as int,
+        ocupadosPorUsuario = Map<String, int>.unmodifiable(
+          objetoJson(json['ocupadosPorUsuario']).cast<String, int>(),
+        ),
+        version = json['version'] as int;
+
+  final int limiteEquiposUsuario;
+  final Map<String, int> ocupadosPorUsuario;
+  final int version;
+}
+
 class RedAzure {
   RedAzure.fromJson(Map<String, dynamic> json)
     : id = idJson(json['id']),
@@ -298,6 +311,16 @@ class AzureApi {
       throw const ExcepcionApi(400, 'CONTRASENA_ACTUAL_INCORRECTA');
     }
   }
+
+  Future<LimitesRed> limitesRed(int redId) async => LimitesRed.fromJson(
+    objetoJson(await _json('GET', 'redes/$redId/limites')),
+  );
+
+  Future<LimitesRed> actualizarLimitesRed(int redId, int limite, int version) async =>
+    LimitesRed.fromJson(objetoJson(await _json(
+      'POST', 'redes/$redId/limites',
+      datos: {'limiteEquiposUsuario': limite, 'version': version},
+    )));
 
   Future<List<RedAzure>> redes() async =>
       listaJson(await _json('GET', 'redes', query: {'page': '0', 'size': '20'}))

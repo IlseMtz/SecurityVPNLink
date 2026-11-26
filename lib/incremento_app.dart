@@ -15,6 +15,7 @@ import 'reposicion_perfil.dart';
 import 'api_error.dart' show ExcepcionApi;
 import 'tema_securelink.dart';
 import 'cuenta_propia.dart';
+import 'limites_red.dart';
 
 class IncrementoApp extends StatefulWidget {
   const IncrementoApp({super.key, this.sesion});
@@ -629,6 +630,18 @@ class _RedesPageState extends State<RedesPage> {
                         ),
                     ],
                   ),
+                  if (propietario)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => showDialog<void>(
+                          context: context,
+                          builder: (_) => LimitesRedDialog(api: api, red: red!),
+                        ),
+                        icon: const Icon(Icons.tune),
+                        label: const Text('Límites de la red'),
+                      ),
+                    ),
                   if (!propietario)
                     const Padding(
                       padding: EdgeInsets.only(top: 8),
