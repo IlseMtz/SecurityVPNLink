@@ -4,23 +4,29 @@ import '../../support/equipo2_harness.dart';
 
 // Fixtures sintéticos; las pruebas de evidencia verifican registros, no tráfico real.
 void main() {
+  Future<void> abrirRecursos(WidgetTester tester, EscenarioEquipo2 h) async {
+    await h.redes(tester);
+    final enlace = find.text('Acceso a recursos internos');
+    await tester.ensureVisible(enlace);
+    await tester.tap(enlace);
+    await tester.pumpAndSettle();
+  }
   testWidgets('VS18-R01 | Piloto: Nadia Ramirez | Copiloto: Ilse Jaqueline | panel muestra destino fijo de laboratorio y TCP 80', (tester) async {
     final h = EscenarioEquipo2();
-    await h.redes(tester);
+    await abrirRecursos(tester, h);
     expect(find.textContaining('172.30.77.10'), findsOneWidget);
     expect(find.textContaining('TCP/80'), findsOneWidget);
   });
   testWidgets('VS18-R02 | Piloto: Ilse Jaqueline | Copiloto: Nadia Ramirez | propietario puede asignar y retirar autorizacion', (tester) async {
     final h = EscenarioEquipo2();
-    await h.redes(tester);
+    await abrirRecursos(tester, h);
     expect(find.text('Autorizar recurso'), findsOneWidget);
-    expect(find.text('Retirar autorización'), findsOneWidget);
+    expect(find.byTooltip('Retirar autorización'), findsOneWidget);
   });
   testWidgets('VS18-C01 | Piloto: Nadia Ramirez | Copiloto: Ilse Jaqueline | miembro sin propiedad no administra concesiones', (tester) async {
     final h = EscenarioEquipo2(propietario:2);
     await h.redes(tester);
-    expect(find.text('Autorizar recurso'), findsNothing);
-    expect(find.text('Retirar autorización'), findsNothing);
+    expect(find.text('Acceso a recursos internos'), findsNothing);
     expect(h.peticiones.where((r) => r.method != 'GET' &&
       !r.url.path.endsWith('/auth/login')), isEmpty);
   });

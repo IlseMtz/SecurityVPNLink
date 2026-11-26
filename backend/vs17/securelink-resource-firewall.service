@@ -1,0 +1,11 @@
+[Unit]
+Description=SecureLink internal resource firewall
+Requires=securelink-vpn-firewall.service
+After=securelink-vpn-firewall.service
+Before=securelink-agent.service
+PartOf=docker.service securelink-vpn-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/securelink-agent/resource-firewall.sh
+RemainAfterExit=yes
