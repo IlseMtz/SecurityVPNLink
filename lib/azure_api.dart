@@ -35,11 +35,28 @@ class CuentaAzure {
     : id = idJson(json['id']),
       nombre = json['nombre'] as String,
       correo = json['correo'] as String,
-      estado = json['estado'] as String;
+      estado = json['estado'] as String,
+      permisos = List<String>.unmodifiable((json['permisos'] as List? ?? const []).whereType<String>());
   final int id;
   final String nombre;
   final String correo;
   final String estado;
+  final List<String> permisos;
+  bool get administraCuentas => permisos.contains('ADMINISTRACION_GLOBAL');
+  bool get consultaAuditoria => permisos.contains('AUDITORIA_LEER');
+}
+
+class PaginaAzure {
+  PaginaAzure({required this.items, required this.pagina, required this.tamano, this.total});
+  factory PaginaAzure.fromJson(Object? json, int pagina, int tamano) {
+    final items = listaJson(json);
+    return PaginaAzure(items: items, pagina: pagina, tamano: tamano,
+      total: json is Map && json['total'] is int ? json['total'] as int : null);
+  }
+  final List<Map<String, dynamic>> items;
+  final int pagina, tamano;
+  final int? total;
+  bool get haySiguiente => total == null ? items.length == tamano : (pagina + 1) * tamano < total!;
 }
 
 class RedAzure {
@@ -307,6 +324,38 @@ class AzureApi {
       query: {'page': '0', 'size': '20'},
     ),
   );
+  Future<PaginaAzure> paginaAuditoria({int? redId, int pagina = 0,
+      int? usuarioId, DateTime? desde, DateTime? hasta}) async {
+    if (pagina < 0 || (usuarioId != null && usuarioId <= 0)) {
+      throw ArgumentError('Filtro inválido');
+    }
+    return PaginaAzure.fromJson(await _json('GET',
+      redId == null ? 'auditoria' : 'redes/$redId/auditoria', query: {
+        'page': '$pagina', 'size': '20',
+        if (usuarioId != null) 'usuarioId': '$usuarioId',
+        if (desde != null) 'desde': desde.toUtc().toIso8601String(),
+        if (hasta != null) 'hasta': hasta.toUtc().toIso8601String(),
+      }), pagina, 20);
+  }
+
+  Future<PaginaAzure> cuentas({int pagina = 0}) async => PaginaAzure.fromJson(
+    await _json('GET', 'administracion/usuarios',
+      query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<Map<String, dynamic>> cuentaAdministrada(int id) async => objetoJson(
+    await _json('GET', 'administracion/usuarios/$id'));
+
+  Future<Map<String, dynamic>> accesosCuenta(int id) async => objetoJson(
+    await _json('GET', 'administracion/usuarios/$id/accesos-vpn'));
+
+  Future<Map<String, dynamic>> cambiarEstadoCuenta(int id, String estado) async {
+    if (id <= 0 || !['SUSPENDIDO', 'ACTIVO'].contains(estado)) {
+      throw ArgumentError('Estado de cuenta inválido');
+    }
+    return objetoJson(await _json('POST', 'administracion/usuarios/$id/estado',
+      datos: {'estado': estado}));
+  }
+
   Future<Map<String, dynamic>> revocar(int redId, int equipoId) async =>
       objetoJson(
         await _json('POST', 'redes/$redId/dispositivos/$equipoId/revocacion'),

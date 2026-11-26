@@ -12,7 +12,7 @@ test('proxy fija host Azure, conserva Bearer y no envía cookies',async()=>{
  assert.equal(vista.op.headers.get('Authorization'),'Bearer FICTICIO');assert.equal(vista.op.headers.get('Cookie'),null);
  assert.equal(r.headers.get('set-cookie'),null);assert.match(r.headers.get('cache-control'),/no-store/);
 });
-for(const ruta of ['/api/v1/administracion/usuarios','/api/v1/redes/3/../../admin','/api/v1/dispositivos','/api/v1/redes/3/eliminacion']) {
+for(const ruta of ['/api/v1/administracion/roles','/api/v1/redes/3/../../admin','/api/v1/dispositivos','/api/v1/redes/3/eliminacion']) {
  test('rechaza ruta fuera del alcance '+ruta,async()=>{
   const w=crearWorker({enviar:async()=>{throw new Error('No debe reenviar');}});
   const r=await w.fetch(new Request('https://frontend.test'+ruta));assert.equal(r.status,404);
@@ -41,3 +41,19 @@ test('sirve estáticos sin auth embebida y redirige solo recursos públicos del 
  const r=await w.fetch(new Request('https://frontend.test/canvaskit/canvaskit.wasm'));
  assert.equal(r.headers.get('location'),'https://www.gstatic.com/flutter-canvaskit/revision/canvaskit.wasm');
 });
+
+for (const [method,path] of [['GET','/api/v1/auditoria'],['GET','/api/v1/administracion/usuarios'],['GET','/api/v1/administracion/usuarios/2'],['GET','/api/v1/administracion/usuarios/2/accesos-vpn'],['POST','/api/v1/administracion/usuarios/2/estado']]) {
+ test(`VS15/24 reenvía ${method} ${path} con autorización`, async()=>{
+  let seen;
+  const w=crearWorker({enviar:async(url,op)=>{seen={url,op};return Response.json({});}});
+  const r=await w.fetch(new Request('https://frontend.test'+path+'?page=2&usuarioId=4',{method,headers:{Authorization:'Bearer FICTICIO','Content-Type':'application/json'},...(method==='POST'?{body:'{"estado":"SUSPENDIDO"}'}:{})}));
+  assert.equal(r.status,200);assert.equal(seen.op.headers.get('Authorization'),'Bearer FICTICIO');
+  assert.equal(new URL(seen.url).searchParams.get('usuarioId'),'4');
+ });
+}
+for(const [method,path] of [['POST','/api/v1/administracion/usuarios'],['POST','/api/v1/auditoria'],['GET','/api/v1/administracion/usuarios/2/estado'],['DELETE','/api/v1/administracion/usuarios/2'],['POST','/api/v1/administracion/usuarios/2/roles']]) {
+ test(`bloquea método o ruta no necesarios: ${method} ${path}`,async()=>{
+  const w=crearWorker({enviar:async()=>{throw Error('No reenviar');}});
+  assert.equal((await w.fetch(new Request('https://frontend.test'+path,{method}))).status,404);
+ });
+}
