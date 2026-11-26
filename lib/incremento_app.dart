@@ -5,6 +5,7 @@ import 'estado_emision_vpn.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'azure_api.dart';
@@ -15,6 +16,7 @@ import 'reposicion_perfil.dart';
 import 'api_error.dart' show ExcepcionApi;
 import 'tema_securelink.dart';
 import 'cuenta_propia.dart';
+import 'reporte_auditoria.dart';
 
 class IncrementoApp extends StatefulWidget {
   const IncrementoApp({super.key, this.sesion});
@@ -1483,6 +1485,21 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
     return fecha != null && (inicio == null || !fecha.isBefore(inicio!)) &&
         (fin == null || fecha.isBefore(fin!));
   }
+  Future<void> exportarPagina(List<Map<String, dynamic>> eventos) async {
+    if (!kIsWeb) return;
+    try {
+      await guardarConfiguracion(
+        csvAuditoria(eventos),
+        'securelink-auditoria-pagina-${pagina + 1}.csv',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo descargar el reporte.')),
+      );
+    }
+  }
+
   int pagina = 0;
   Future<PaginaAzure> cargar() => widget.api.paginaAuditoria(
     redId: widget.redId, pagina: pagina,
@@ -1547,6 +1564,12 @@ class _AuditoriaDialogState extends State<AuditoriaDialog> {
                   ),
                 ),
             ])),
+            if (kIsWeb)
+              TextButton.icon(
+                onPressed: visibles.isEmpty ? null : () => exportarPagina(visibles),
+                icon: const Icon(Icons.download),
+                label: const Text('Exportar esta página (CSV)'),
+              ),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               IconButton(tooltip: 'Página anterior', onPressed: pagina > 0 ? () => cambiarPagina(pagina - 1) : null,
                 icon: const Icon(Icons.chevron_left)),
