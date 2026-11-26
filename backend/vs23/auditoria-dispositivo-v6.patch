@@ -1,0 +1,41 @@
+diff --git a/src/main/java/mx/securelink/backend/api/ManagementController.java b/src/main/java/mx/securelink/backend/api/ManagementController.java
+index 603eb1e..4352ad7 100644
+--- a/src/main/java/mx/securelink/backend/api/ManagementController.java
++++ b/src/main/java/mx/securelink/backend/api/ManagementController.java
+@@ -47,10 +47,11 @@ public class ManagementController {
+     @GetMapping({"/auditoria","/redes/{redId}/auditoria"})
+     ManagementSupport.Page<NetworkQueryService.Event> audit(@PathVariable(required=false) Long redId,@AuthenticationPrincipal Jwt jwt,
+         @RequestParam(required=false) Long usuarioId,@RequestParam(required=false) String accion,
++        @RequestParam(required=false) @Positive Long dispositivoId,
+         @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE_TIME) Instant desde,
+         @RequestParam(required=false) @DateTimeFormat(iso=DateTimeFormat.ISO.DATE_TIME) Instant hasta,
+         @RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) {
+-        return nets.audit(actor(jwt),redId,usuarioId,accion,desde,hasta,page,size);
++        return nets.audit(actor(jwt),redId,usuarioId,accion,dispositivoId,desde,hasta,page,size);
+     }
+     @GetMapping("/administracion/usuarios")
+     ManagementSupport.Page<IdentityService.User> users(@AuthenticationPrincipal Jwt jwt,@RequestParam(defaultValue="0") int page,@RequestParam(defaultValue="20") int size) { return profiles.list(actor(jwt),page,size); }
+diff --git a/src/main/java/mx/securelink/backend/api/NetworkQueryService.java b/src/main/java/mx/securelink/backend/api/NetworkQueryService.java
+index 1fb1226..14f2ff9 100644
+--- a/src/main/java/mx/securelink/backend/api/NetworkQueryService.java
++++ b/src/main/java/mx/securelink/backend/api/NetworkQueryService.java
+@@ -33,7 +33,7 @@ public class NetworkQueryService {
+     }
+     public record Event(long id,Long usuarioId,String accion,String objetoTipo,String objetoId,String resultado,
+                         String detalle,Long redId,Instant fecha) { }
+-    public ManagementSupport.Page<Event> audit(long actor,Long red,Long user,String action,Instant from,Instant until,int page,int size) {
++    public ManagementSupport.Page<Event> audit(long actor,Long red,Long user,String action,Long device,Instant from,Instant until,int page,int size) {
+         ManagementSupport.page(page,size);
+         if(red!=null) {
+             var owners=db.queryForList("SELECT id_propietario FROM red_vpn WHERE id_red=?",Long.class,red);
+@@ -48,6 +48,10 @@ public class NetworkQueryService {
+         if(red!=null) { where.append(" AND id_red_contexto=?");args.add(red); }
+         if(user!=null) { where.append(" AND id_usuario=?");args.add(user); }
+         if(action!=null) { where.append(" AND accion=?");args.add(action); }
++        if(device!=null) {
++            where.append(" AND objeto_tipo='DISPOSITIVO' AND objeto_id=?");
++            args.add(Long.toString(device));
++        }
+         if(from!=null) { where.append(" AND fecha>=?");args.add(Timestamp.from(from)); }
+         if(until!=null) { where.append(" AND fecha<=?");args.add(Timestamp.from(until)); }
+         long count=db.queryForObject("SELECT COUNT(*) FROM registro_auditoria"+where,Long.class,args.toArray());

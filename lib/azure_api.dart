@@ -366,14 +366,16 @@ class AzureApi {
     ),
   );
   Future<PaginaAzure> paginaAuditoria({int? redId, int pagina = 0,
-      int? usuarioId, DateTime? desde, DateTime? hasta}) async {
-    if (pagina < 0 || (usuarioId != null && usuarioId <= 0)) {
+      int? usuarioId, int? dispositivoId, DateTime? desde, DateTime? hasta}) async {
+    if (pagina < 0 || (usuarioId != null && usuarioId <= 0) ||
+        (dispositivoId != null && dispositivoId <= 0)) {
       throw ArgumentError('Filtro inválido');
     }
     return PaginaAzure.fromJson(await _json('GET',
       redId == null ? 'auditoria' : 'redes/$redId/auditoria', query: {
         'page': '$pagina', 'size': '20',
         if (usuarioId != null) 'usuarioId': '$usuarioId',
+        if (dispositivoId != null) 'dispositivoId': dispositivoId.toString(),
         if (desde != null) 'desde': desde.toUtc().toIso8601String(),
         if (hasta != null) 'hasta': hasta.toUtc().toIso8601String(),
       }), pagina, 20);

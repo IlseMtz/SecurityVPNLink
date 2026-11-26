@@ -6,7 +6,9 @@ import 'package:web/web.dart' as web;
 Future<bool> guardarConfiguracion(Uint8List bytes, String nombre) async {
   final blob = web.Blob(
     [bytes.toJS].toJS,
-    web.BlobPropertyBag(type: 'text/plain'),
+    web.BlobPropertyBag(
+      type: nombre.endsWith('.pdf') ? 'application/pdf' : 'text/plain',
+    ),
   );
   final url = web.URL.createObjectURL(blob);
   final enlace = web.HTMLAnchorElement()
