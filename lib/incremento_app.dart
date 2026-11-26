@@ -16,6 +16,7 @@ import 'reposicion_perfil.dart';
 import 'api_error.dart' show ExcepcionApi;
 import 'tema_securelink.dart';
 import 'cuenta_propia.dart';
+import 'administrar_red.dart';
 
 class IncrementoApp extends StatefulWidget {
   const IncrementoApp({super.key, this.sesion});
@@ -307,8 +308,15 @@ class _RedesPageState extends State<RedesPage> {
   bool ocupado = true, enviando = false;
   String? error;
   int revision = 0;
+  final operacionesRed = <int, SeguimientoRed>{};
   AzureApi get api => widget.sesion.api;
-  bool get propietario => red?.esPropietario(widget.sesion.cuenta!) ?? false;
+  bool get propietario {
+    final cuenta = widget.sesion.cuenta;
+    return cuenta != null && (red?.esPropietario(cuenta) ?? false);
+  }
+  int get redesPropias => redes.where((r) => r.propietarioId == widget.sesion.cuenta?.id).length;
+  int get equiposHabilitados => equipos.where((e) => e.activo).length;
+  bool get redBloqueada => operacionesRed[red?.id]?.bloqueada ?? false;
   @override
   void initState() {
     super.initState();
@@ -357,7 +365,9 @@ class _RedesPageState extends State<RedesPage> {
     try {
       final nueva = await api.red(id);
       final lista = await api.dispositivos(id);
-      final integrantes = nueva.esPropietario(widget.sesion.cuenta!)
+      final cuenta = widget.sesion.cuenta;
+      if (!mounted || actual != revision || cuenta == null) return;
+      final integrantes = nueva.esPropietario(cuenta)
           ? await api.miembros(id)
           : <Map<String, dynamic>>[];
       if (!mounted || actual != revision) return;
@@ -378,16 +388,19 @@ class _RedesPageState extends State<RedesPage> {
   }
 
   Future<void> crearRed() async {
-    final nombre = await pedirNombre(context, 'Crear red', 'Nombre de la red');
-    if (nombre == null || !mounted) return;
-    setState(() => enviando = true);
+    if (redesPropias >= 3 || enviando) return;
+    final datos = await showDialog<DatosRed>(context: context, builder: (_) => const FormularioRed());
+    if (datos == null || !mounted) return;
+    setState(() { enviando = true; error = null; });
     try {
-      final nueva = await api.crearRed(nombre);
+      final nueva = await api.crearRed(datos.nombre, descripcion: datos.descripcion);
       if (!mounted) return;
       redes = [...redes, nueva];
       await cargar(nueva.id);
     } catch (e) {
-      if (mounted) setState(() => error = mensajeSeguro(e));
+      if (mounted) setState(() => error = e is ExcepcionApi && e.estado == 409
+          ? 'La red no se pudo crear. Actualiza el listado y revisa el límite de tres redes propias.'
+          : mensajeSeguro(e));
     } finally {
       if (mounted) setState(() => enviando = false);
     }
@@ -395,7 +408,7 @@ class _RedesPageState extends State<RedesPage> {
 
   Future<void> alta() async {
     final seleccion = red;
-    if (!propietario || seleccion == null || enviando) return;
+    if (!propietario || seleccion == null || enviando || redBloqueada || equiposHabilitados >= 5) return;
     final solicitud = await showDialog<SolicitudDispositivo>(
       context: context,
       builder: (_) => AltaEquipoDialog(miembros: miembros),
@@ -409,7 +422,44 @@ class _RedesPageState extends State<RedesPage> {
       await api.registrar(seleccion.id, solicitud);
       if (mounted) await cargar(seleccion.id);
     } catch (e) {
-      if (mounted) setState(() => error = mensajeSeguro(e));
+      if (mounted) setState(() => error = e is ExcepcionApi && e.estado == 409
+          ? 'No se pudo registrar el dispositivo. Revisa el estado de la red y el límite de cinco dispositivos habilitados.'
+          : mensajeSeguro(e));
+    } finally {
+      if (mounted) setState(() => enviando = false);
+    }
+  }
+
+  Future<void> administrarRed() async {
+    final seleccion = red;
+    if (!propietario || seleccion == null || enviando) return;
+    final seguimiento = operacionesRed.putIfAbsent(seleccion.id, () => SeguimientoRed(seleccion))
+      ..red = seleccion;
+    await abrirSeguimiento(seguimiento, integrantes: miembros);
+  }
+
+  Future<void> abrirSeguimiento(SeguimientoRed seguimiento, {List<Map<String, dynamic>>? integrantes}) async {
+    final cuenta = widget.sesion.cuenta;
+    if (cuenta == null || !seguimiento.red.esPropietario(cuenta)) return;
+    await showDialog<void>(context: context, builder: (_) => AdministrarRedDialog(
+      api: api, red: seguimiento.red, cuenta: cuenta, miembros: integrantes ?? const [],
+      seguimiento: seguimiento, soloSeguimiento: integrantes == null,
+    ));
+    if (mounted && widget.sesion.cuenta != null) await cargarRedes();
+  }
+
+  Future<void> editarEquipo(EquipoAzure equipo) async {
+    final seleccion = red;
+    final version = equipo.version;
+    if (!propietario || seleccion == null || version == null || redBloqueada || enviando) return;
+    final datos = await showDialog<DatosEquipo>(context: context, builder: (_) => FormularioEquipo(equipo: equipo));
+    if (datos == null || !mounted || !propietario || red?.id != seleccion.id) return;
+    setState(() { enviando = true; error = null; });
+    try {
+      await api.editarDispositivo(seleccion.id, equipo.id, datos.nombre, datos.sistemaOperativo, version);
+      if (mounted) await cargar(seleccion.id);
+    } catch (e) {
+      if (mounted) setState(() => error = errorAdministracion(e));
     } finally {
       if (mounted) setState(() => enviando = false);
     }
@@ -576,10 +626,14 @@ class _RedesPageState extends State<RedesPage> {
                         ),
                       ),
                     OutlinedButton.icon(
-                      onPressed: ocupado || enviando ? null : crearRed,
+                      onPressed: ocupado || enviando || redesPropias >= 3 ? null : crearRed,
                       icon: const Icon(Icons.add),
                       label: const Text('Crear red'),
                     ),
+                    if (redesPropias >= 3) const Text('Límite de tres redes propias alcanzado.'),
+                    if (propietario)
+                      OutlinedButton.icon(onPressed: enviando ? null : administrarRed,
+                        icon: const Icon(Icons.settings_outlined), label: const Text('Administrar red')),
                     if (red != null)
                       Chip(
                         label: Text(
@@ -591,6 +645,13 @@ class _RedesPageState extends State<RedesPage> {
                   ],
                 ),
                 if (error != null) aviso(error!, esError: true),
+                for (final seguimiento in operacionesRed.values)
+                  if (seguimiento.operacion != null && seguimiento.red.esPropietario(cuenta))
+                    Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+                      onPressed: ocupado || enviando ? null : () => abrirSeguimiento(seguimiento),
+                      icon: const Icon(Icons.history_toggle_off),
+                      label: Text('Operación de ${seguimiento.red.nombre}: ${seguimiento.operacion!.estado}'),
+                    )),
                 if (ocupado)
                   const Padding(
                     padding: EdgeInsets.all(48),
@@ -620,6 +681,8 @@ class _RedesPageState extends State<RedesPage> {
                   aviso(
                     'Estado de la red: ${red!.estado}. ${red!.cidr == null ? 'La subred se asignará con la primera configuración aplicada.' : 'Subred: ${red!.cidr}.'} Un dispositivo habilitado no equivale a una conexión activa.',
                   ),
+                  if (red!.descripcion.isNotEmpty) Text(red!.descripcion),
+                  if (redBloqueada) const Text('Hay una operación administrativa sin aplicar. Consulta su estado en Administrar red.'),
                   Row(
                     children: [
                       Expanded(
@@ -630,7 +693,7 @@ class _RedesPageState extends State<RedesPage> {
                       ),
                       if (propietario)
                         FilledButton.icon(
-                          onPressed: enviando || red!.estado == 'SUSPENDIDA'
+                          onPressed: enviando || redBloqueada || equiposHabilitados >= 5 || red!.estado == 'SUSPENDIDA'
                               ? null
                               : alta,
                           icon: const Icon(Icons.add),
@@ -638,6 +701,7 @@ class _RedesPageState extends State<RedesPage> {
                         ),
                     ],
                   ),
+                  if (propietario) Text('$equiposHabilitados de 5 dispositivos habilitados.'),
                   if (!propietario)
                     const Padding(
                       padding: EdgeInsets.only(top: 8),
@@ -671,7 +735,13 @@ class _RedesPageState extends State<RedesPage> {
                           '${equipo.sistemaOperativo} · Usuario ${equipo.usuarioId}\n${equipo.estado} · Dispositivo ${equipo.id}',
                         ),
                         isThreeLine: true,
-                        trailing: const Icon(Icons.chevron_right),
+                        trailing: propietario
+                            ? IconButton(
+                                tooltip: equipo.version == null ? 'Versión del dispositivo no disponible' : 'Editar dispositivo ${equipo.nombre}',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: enviando || redBloqueada || equipo.version == null ? null : () => editarEquipo(equipo),
+                              )
+                            : const Icon(Icons.chevron_right),
                         onTap: () => detalle(equipo),
                       ),
                     ),
@@ -703,48 +773,6 @@ class _RedesPageState extends State<RedesPage> {
       ),
     );
   }
-}
-
-Future<String?> pedirNombre(
-  BuildContext context,
-  String titulo,
-  String etiqueta,
-) async {
-  final control = TextEditingController();
-  final formulario = GlobalKey<FormState>();
-  final resultado = await showDialog<String>(
-    context: context,
-    builder: (c) => AlertDialog(
-      title: Text(titulo),
-      content: Form(
-        key: formulario,
-        child: TextFormField(
-          controller: control,
-          maxLength: 100,
-          decoration: InputDecoration(labelText: etiqueta),
-          validator: (v) =>
-              v == null || v.trim().isEmpty ? 'Escribe un nombre.' : null,
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(c),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (formulario.currentState!.validate()) {
-              Navigator.pop(c, control.text.trim());
-            }
-          },
-          child: const Text('Crear'),
-        ),
-      ],
-    ),
-  );
-  // Se libera después de retirar la ruta y completar su animación.
-  Future<void>.delayed(const Duration(milliseconds: 350), control.dispose);
-  return resultado;
 }
 
 class AltaEquipoDialog extends StatefulWidget {
