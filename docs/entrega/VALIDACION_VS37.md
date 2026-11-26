@@ -19,6 +19,8 @@ Ejecutar el medidor con Node.js 22 desde una máquina cliente del laboratorio. C
 node tool/medir_panel.mjs http://127.0.0.1:8765/ 40 4
 ```
 
+Para medir una consulta autenticada, configura SECURELINK_PRUEBA_TOKEN en el entorno temporal con el token de una cuenta de laboratorio y usa la URL HTTPS de la ruta GET. El medidor evita redirecciones, no imprime el token y rechaza enviarlo por HTTP.
+
 | Objetivo | Método y evidencia |
 | --- | --- |
 | Panel ≤2 s en el 95 % de solicitudes | Medir operaciones habituales con varios administradores de prueba. Guardar p95, errores, muestra, concurrencia y origen. |

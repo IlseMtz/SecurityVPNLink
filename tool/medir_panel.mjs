@@ -11,6 +11,12 @@ if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.p
   process.exit(2);
 }
 
+const token = process.env.SECURELINK_PRUEBA_TOKEN?.trim();
+if (token && url.protocol !== 'https:') {
+  console.error('Para medir con token, usa el HTTPS del laboratorio.');
+  process.exit(2);
+}
+
 const precisiones = [];
 const errores = new Map();
 let porIniciar = muestras;
@@ -22,6 +28,7 @@ async function medir() {
     try {
       const respuesta = await fetch(url, {
         redirect: 'error',
+        headers: token ? { Authorization: 'Bearer ' + token } : undefined,
         signal: AbortSignal.timeout(10000),
       });
       await respuesta.arrayBuffer();
