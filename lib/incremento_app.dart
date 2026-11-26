@@ -8,6 +8,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 
 import 'azure_api.dart';
+import 'recursos_internos.dart';
 import 'dispositivos.dart';
 import 'guardar_configuracion.dart';
 import 'sesion_azure.dart';
@@ -582,6 +583,14 @@ class _RedesPageState extends State<RedesPage> {
                       label: const Text('Auditoría global'),
                       onPressed: () => showDialog<void>(context: context,
                         builder: (_) => AuditoriaDialog(api: api))),
+                  if (cuenta.administraCuentas)
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.dns_outlined),
+                      label: const Text('Catálogo de recursos internos'),
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => RecursosInternosPage(api: api),
+                      )),
+                    ),
                 ]),
                 const SizedBox(height: 12),
                 Wrap(
@@ -734,6 +743,17 @@ class _RedesPageState extends State<RedesPage> {
                               )
                             : const Icon(Icons.chevron_right),
                         onTap: () => detalle(equipo),
+                      ),
+                    ),
+                  if (propietario && red != null)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        icon: const Icon(Icons.vpn_lock_outlined),
+                        label: const Text('Acceso a recursos internos'),
+                        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                          builder: (_) => RecursosInternosPage(api: api, red: red),
+                        )),
                       ),
                     ),
                   if (propietario)

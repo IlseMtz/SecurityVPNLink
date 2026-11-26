@@ -80,7 +80,7 @@ Backend: https://nero.northcentralus.cloudapp.azure.com/api/v1
 
 El contrato vigente usa `/redes/{redId}/dispositivos`, configuración, QR, operaciones VPN y auditoría. El formulario usa WINDOWS, ANDROID, IOS, LINUX o MACOS. No utiliza el antiguo POST `/dispositivos`.
 
-Azure rechaza CORS desde orígenes nuevos, incluido localhost. `flutter run -d chrome` permite revisar la interfaz local, pero la integración HTTP requiere un origen permitido por Azure o servir la web y el Worker juntos mediante una herramienta local compatible con Workers. El script prepara la compilación con `/api/v1` del sitio publicado; no configura CORS en Azure. Para otro despliegue, usar `-ApiUrl 'https://nuevo-origen/api/v1'` y publicar el intermediario en ese mismo origen.
+Para probar el login y el registro desde el navegador, usa el script de arriba y abre `http://127.0.0.1:8765`. El arranque con `flutter run -d chrome` puede elegir un puerto distinto cada vez y, con la configuración predeterminada, llama directamente al dominio de Azure. Si Azure no permite ese origen exacto (incluido el puerto), el navegador rechaza la consulta previa CORS. El script compila con `/api/v1` y sirve el intermediario en el mismo origen que la aplicación. Para otro despliegue, usar `-ApiUrl 'https://nuevo-origen/api/v1'` y publicar el intermediario en ese mismo origen.
 
 El Worker reenvía solo rutas permitidas al host fijo de Azure; no reenvía cookies ni sigue redirecciones. La autorización real la aplica Azure. No quitar estas restricciones para resolver un error CORS.
 

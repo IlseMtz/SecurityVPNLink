@@ -267,6 +267,25 @@ class AzureApi {
     }
   }
 
+  Future<List<Map<String, dynamic>>> catalogoRecursos() async =>
+      listaJson(await _json('GET', 'administracion/recursos'));
+
+  Future<void> guardarRecurso(Map<String, Object> datos, {int? id}) async {
+    final sufijo = id == null ? '' : '/$id';
+    await _json('POST', 'administracion/recursos$sufijo', datos: datos);
+  }
+
+  Future<Map<String, dynamic>> recursosRed(int redId) async =>
+      objetoJson(await _json('GET', 'redes/$redId/recursos'));
+
+  Future<void> guardarConcesion(int redId, Map<String, Object> datos) async {
+    await _json('POST', 'redes/$redId/recursos/concesiones', datos: datos);
+  }
+
+  Future<void> retirarConcesion(int redId, int recursoId, int usuarioId) async {
+    await _json('POST', 'redes/$redId/recursos/$recursoId/usuarios/$usuarioId/retiro');
+  }
+
   Future<AccesoAzure> login(String correo, String contrasena) async {
     final json = objetoJson(
       await _json(

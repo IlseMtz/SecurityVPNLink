@@ -54,6 +54,15 @@ class EscenarioEquipo2 {
       cuerpo = redFixture(propietario: propietario);
     } else if (p.endsWith('/dispositivos')) {
       cuerpo = [{...equipoFixture(), 'estado': estadoEquipo}];
+    } else if (p.endsWith('/redes/10/recursos') && r.method == 'GET') {
+      estado = propietario == 1 ? 200 : 403;
+      cuerpo = estado == 200 ? {
+        'recursos': [{'id': 1, 'nombre': 'Laboratorio', 'direccion': '172.30.77.10',
+          'protocolo': 'TCP', 'puerto': 80, 'activo': true}],
+        'concesiones': [{'usuarioId': 1, 'recursoId': 1, 'dias': 127,
+          'inicio': '00:00:00', 'fin': '00:00:00', 'zona': 'UTC'}],
+        'agenteDisponible': true,
+      } : {'error': 'NO_AUTORIZADO'};
     } else if (p.endsWith('/miembros')) {
       cuerpo = [{'usuarioId':1,'nombre':'Usuario sintético','correo':'e2@example.test',
         'estado':'ACTIVO','rolRed':'PROPIETARIO'}];

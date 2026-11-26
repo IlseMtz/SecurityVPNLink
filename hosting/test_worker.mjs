@@ -40,6 +40,30 @@ test('VS-8 reenvía cuenta propia solo con los métodos del contrato', async () 
   }
   assert.deepEqual(llamadas, rutas.map(([method, ruta]) => [method, '/api/v1' + ruta]));
 });
+test('VS-17 usa las rutas y métodos exactos desde el origen local', async () => {
+  const origen = 'http://127.0.0.1:8765';
+  const rutas = [
+    ['GET', '/administracion/recursos'], ['POST', '/administracion/recursos'],
+    ['POST', '/administracion/recursos/1'], ['GET', '/redes/2/recursos'],
+    ['POST', '/redes/2/recursos/concesiones'],
+    ['POST', '/redes/2/recursos/1/usuarios/3/retiro'],
+  ];
+  const llamadas = [];
+  const worker = crearWorker({enviar: async (url, opciones) => {
+    assert.equal(opciones.headers.get('Authorization'), 'Bearer FICTICIO');
+    assert.equal(opciones.headers.get('Origin'), null);
+    llamadas.push([opciones.method, url]);
+    return new Response(null, {status: 204});
+  }});
+  for (const [method, ruta] of rutas) {
+    const url = origen + '/api/v1' + ruta;
+    const headers = {Origin: origen, Authorization: 'Bearer FICTICIO'};
+    assert.equal((await worker.fetch(new Request(url, {method, headers}))).status, 204);
+    assert.equal((await worker.fetch(new Request(url, {method: 'DELETE', headers}))).status, 404);
+  }
+  assert.equal((await worker.fetch(new Request(origen + '/api/v1/redes/2/recursos/desconocida'))).status, 404);
+  assert.deepEqual(llamadas, rutas.map(([method, ruta]) => [method, 'https://nero.northcentralus.cloudapp.azure.com/api/v1' + ruta]));
+});
 test('VS-39 reenvía únicamente las rutas y métodos administrativos acordados', async () => {
   const uuid = '01234567-89ab-4def-8123-0123456789ab';
   const posts = ['edicion', 'suspension', 'reactivacion', 'eliminacion',
