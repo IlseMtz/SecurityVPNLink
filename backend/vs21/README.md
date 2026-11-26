@@ -1,6 +1,6 @@
 # VS-21 — Política de perfiles y cupos
 
-Esta actualización parte de la entrega V6 de administración. Aplicar la migración al esquema de laboratorio y después aplicar cupos-v6.patch seguido de modalidad-v6.patch en la raíz del código Spring. Comprobar cada parche con git apply --check antes de aplicarlo. Verificar las configuraciones y los QR generados antes de desplegar.
+Esta actualización parte de la entrega V6 de administración. Aplicar V8__politica_y_cupo_red.sql al esquema de laboratorio. VS-17 ya usa el número V7. Después, aplicar cupos-v6.patch seguido de modalidad-v6.patch en la raíz del código Spring. Comprobar cada parche con git apply --check antes de aplicarlo. Verificar las configuraciones y los QR generados antes de desplegar.
 
 - GET /api/v1/redes/{redId}/limites devuelve limiteEquiposUsuario, ocupadosPorUsuario, modoTunel y version al propietario.
 - POST en la misma ruta recibe limiteEquiposUsuario de 1 a 5, modoTunel FULL o SPLIT y la versión anterior de la red.
