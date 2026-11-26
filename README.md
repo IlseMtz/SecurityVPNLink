@@ -86,6 +86,17 @@ El Worker reenvía solo rutas permitidas al host fijo de Azure; no reenvía cook
 
 ## Alcance y pruebas
 
+VS-8 cubre las peticiones 02–07 de la guía V6. Usa **Crear cuenta** desde el inicio de sesión y **Mi cuenta** desde la barra del panel para consultar el perfil, editar el nombre o correo y cambiar la contraseña. Las dos ediciones y el cierre de todas las sesiones requieren volver a entrar. El registro deja al usuario en el formulario de acceso. La asignación del rol `USUARIO_VPN`, la emisión del JWT y su invalidación corresponden a Azure.
+
+Para reproducir la evidencia automatizada de VS-8 desde PowerShell:
+
+```powershell
+.\.tools\flutter\bin\flutter.bat test test/vs8_cuenta_test.dart --reporter expanded
+node --test hosting/test_worker.mjs
+```
+
+Las pruebas de Flutter usan respuestas HTTP controladas de la API V6. Para la aceptación en Azure, utiliza una cuenta de prueba y dos sesiones independientes. Registra y verifica el rol, inicia sesión y comprueba `expiresIn: 3600`. Repite con credenciales inválidas. Consulta el perfil, verifica el rechazo de una contraseña actual incorrecta y confirma cada operación de invalidación por separado (edición de perfil, cambio de contraseña y logout). Tras cada operación, `GET /usuarios/me` debe devolver `401` al usar el token de la otra sesión. Registra códigos y pantallas sin capturar contraseñas ni JWT. La entrega de archivo y QR se verifica en VS-14.
+
 Se conservan las pruebas del contrato Azure, pantallas, sesión, reposición y del intermediario. Usan dobles controlados: no demuestran por sí mismas conectividad real de WireGuard. La integración Azure y la aceptación física deben verificarse por separado. La entrega presencial requiere comprobar identidad; la importación del perfil y el acceso al laboratorio se prueban en el equipo del propietario.
 
 La limpieza retiró pantallas demo y el contrato local anterior, junto con sus pruebas específicas. También retiró del frontend los esqueletos RED de VS-12/VS-13, que no eran usados por la aplicación. Se respaldaron fuera del repositorio: no se presentan como funcionalidades implementadas ni como pruebas convertidas a verde.

@@ -152,6 +152,7 @@ class AzureApi {
     Map<String, Object>? datos,
     Map<String, String>? query,
     bool publica = false,
+    bool caducarEn401 = true,
     String acepta = 'application/json',
   }) async {
     final token = publica ? null : obtenerToken();
@@ -185,7 +186,12 @@ class AzureApi {
       throw const ExcepcionApi(0, 'SIN_CONEXION');
     }
     if (respuesta.statusCode < 200 || respuesta.statusCode >= 300) {
-      if (respuesta.statusCode == 401 && !publica) alCaducar?.call();
+      if (respuesta.statusCode == 401 &&
+          !publica &&
+          caducarEn401 &&
+          token == obtenerToken()) {
+        alCaducar?.call();
+      }
       var codigo = 'HTTP_${respuesta.statusCode}';
       try {
         final error = jsonDecode(utf8.decode(respuesta.bodyBytes));
@@ -256,6 +262,41 @@ class AzureApi {
 
   Future<void> logout() async {
     await _json('POST', 'auth/logout');
+  }
+
+  Future<void> registrarCuenta(String nombre, String correo, String clave) async {
+    await _json(
+      'POST',
+      'auth/registro',
+      publica: true,
+      datos: {'nombre': nombre.trim(), 'correo': correo.trim(), 'contrasena': clave},
+    );
+  }
+
+  Future<CuentaAzure> miPerfil() async =>
+      CuentaAzure.fromJson(objetoJson(await _json('GET', 'usuarios/me')));
+
+  Future<void> editarMiPerfil(String nombre, String correo) async {
+    await _enviar('POST', 'usuarios/me/perfil', datos: {
+      'nombre': nombre.trim(),
+      'correo': correo.trim(),
+    });
+  }
+
+  Future<void> cambiarMiContrasena(String actual, String nueva) async {
+    try {
+      await _enviar(
+        'POST',
+        'usuarios/me/contrasena',
+        caducarEn401: false,
+        datos: {'contrasenaActual': actual, 'contrasenaNueva': nueva},
+      );
+    } on ExcepcionApi catch (error) {
+      if (error.estado != 401) rethrow;
+      // Un 401 aquí puede indicar una contraseña incorrecta o un JWT inválido.
+      await miPerfil();
+      throw const ExcepcionApi(400, 'CONTRASENA_ACTUAL_INCORRECTA');
+    }
   }
 
   Future<List<RedAzure>> redes() async =>

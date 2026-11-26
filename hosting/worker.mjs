@@ -5,10 +5,12 @@ const headersPrivados = {'Cache-Control':'no-store, private', 'Pragma':'no-cache
   'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer'};
 
 function rutaPermitida(path, method) {
+  if (/^\/api\/v1\/(auth\/(login|logout|registro)|usuarios\/me\/(perfil|contrasena))$/.test(path)) return method === 'POST';
+  if (path === '/api/v1/usuarios/me') return method === 'GET';
   // Ampliación mínima para VS15 y VS24; Azure sigue autorizando cada operación.
   if (method === 'GET' && /^\/api\/v1\/(auditoria|administracion\/usuarios(?:\/[1-9]\d*(?:\/accesos-vpn)?)?)$/.test(path)) return true;
   if (method === 'POST' && /^\/api\/v1\/administracion\/usuarios\/[1-9]\d*\/estado$/.test(path)) return true;
-  return /^\/api\/v1\/(auth\/(login|logout)|usuarios\/me|redes(?:\/\d+(?:\/(miembros|auditoria|dispositivos(?:\/\d+\/(configuracion(?:\/qr)?|vpn|conexion|revocacion))?|operaciones-vpn\/[0-9a-fA-F-]{36}))?)?)$/.test(path);
+  return /^\/api\/v1\/redes(?:\/\d+(?:\/(miembros|auditoria|dispositivos(?:\/\d+\/(configuracion(?:\/qr)?|vpn|conexion|revocacion))?|operaciones-vpn\/[0-9a-fA-F-]{36}))?)?$/.test(path);
 }
 
 export function crearWorker({assetsLocales=assets, revision=engineRevision, enviar=fetch}={}) {

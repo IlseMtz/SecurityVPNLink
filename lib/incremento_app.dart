@@ -14,6 +14,7 @@ import 'sesion_azure.dart';
 import 'reposicion_perfil.dart';
 import 'api_error.dart' show ExcepcionApi;
 import 'tema_securelink.dart';
+import 'cuenta_propia.dart';
 
 class IncrementoApp extends StatefulWidget {
   const IncrementoApp({super.key, this.sesion});
@@ -72,6 +73,7 @@ class _AccesoAzurePageState extends State<AccesoAzurePage> {
   final clave = TextEditingController();
   bool ocupado = false, ocultar = true;
   String? error;
+  String? avisoRegistro;
   @override
   void dispose() {
     correo.dispose();
@@ -84,15 +86,36 @@ class _AccesoAzurePageState extends State<AccesoAzurePage> {
     setState(() {
       ocupado = true;
       error = null;
+      avisoRegistro = null;
     });
     try {
       await widget.sesion.ingresar(correo.text, clave.text);
     } catch (e) {
-      if (mounted) setState(() => error = mensajeSeguro(e));
+      if (mounted) {
+        setState(() => error = e is ExcepcionApi && e.estado == 401
+            ? 'Correo o contraseña incorrectos.'
+            : mensajeSeguro(e));
+      }
     } finally {
-      clave.clear();
-      if (mounted) setState(() => ocupado = false);
+      if (mounted) {
+        clave.clear();
+        setState(() => ocupado = false);
+      }
     }
+  }
+
+  Future<void> registrar() async {
+    final creado = await showDialog<String>(
+      context: context,
+      builder: (_) => FormularioCuenta(sesion: widget.sesion, accion: AccionCuenta.registrar),
+    );
+    if (!mounted || creado == null) return;
+    correo.text = creado;
+    clave.clear();
+    setState(() {
+      error = null;
+      avisoRegistro = 'Cuenta creada. Inicia sesión para acceder al panel.';
+    });
   }
 
   @override
@@ -168,6 +191,8 @@ class _AccesoAzurePageState extends State<AccesoAzurePage> {
                                 : null,
                           ),
                           if (error != null) aviso(error!, esError: true),
+                          if (avisoRegistro ?? widget.sesion.avisoAcceso case final mensaje?
+                              when error == null) aviso(mensaje),
                           const SizedBox(height: 24),
                           FilledButton(
                             onPressed: ocupado ? null : ingresar,
@@ -176,6 +201,10 @@ class _AccesoAzurePageState extends State<AccesoAzurePage> {
                                   ? 'Verificando acceso…'
                                   : 'Iniciar sesión',
                             ),
+                          ),
+                          TextButton(
+                            onPressed: ocupado ? null : registrar,
+                            child: const Text('Crear cuenta'),
                           ),
                           const SizedBox(height: 16),
                           const Text(
@@ -430,13 +459,7 @@ class _RedesPageState extends State<RedesPage> {
         ],
       ),
     );
-    if (confirmar == true) {
-      try {
-        await widget.sesion.salir();
-      } catch (_) {
-        /* Sesión local eliminada. */
-      }
-    }
+    if (mounted && confirmar == true) await widget.sesion.salir();
   }
 
   @override
@@ -451,6 +474,14 @@ class _RedesPageState extends State<RedesPage> {
               padding: const EdgeInsets.only(right: 16),
               child: Center(child: Text(cuenta.nombre)),
             ),
+          IconButton(
+            tooltip: 'Mi cuenta',
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => MiCuentaDialog(sesion: widget.sesion),
+            ),
+            icon: const Icon(Icons.manage_accounts_outlined),
+          ),
           IconButton(
             tooltip: 'Cerrar todas mis sesiones',
             onPressed: salir,

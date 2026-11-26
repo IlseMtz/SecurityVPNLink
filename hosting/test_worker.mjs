@@ -21,6 +21,25 @@ for(const ruta of ['/api/v1/administracion/roles','/api/v1/redes/3/../../admin',
 test('otro origen no puede usar el proxy para el login',async()=>{
  const w=crearWorker();const r=await w.fetch(new Request('https://frontend.test/api/v1/auth/login',{method:'POST',headers:{Origin:'https://otro.test'}}));assert.equal(r.status,403);
 });
+test('VS-8 reenvía cuenta propia solo con los métodos del contrato', async () => {
+  const rutas = [
+    ['POST', '/auth/login'], ['POST', '/auth/registro'], ['POST', '/auth/logout'],
+    ['GET', '/usuarios/me'], ['POST', '/usuarios/me/perfil'],
+    ['POST', '/usuarios/me/contrasena'],
+  ];
+  const llamadas = [];
+  const worker = crearWorker({enviar: async (url, opciones) => {
+    llamadas.push([opciones.method, new URL(url).pathname]);
+    return new Response(null, {status: 204});
+  }});
+  for (const [method, ruta] of rutas) {
+    const url = 'https://frontend.test/api/v1' + ruta;
+    assert.equal((await worker.fetch(new Request(url, {method}))).status, 204);
+    const otro = method === 'GET' ? 'POST' : 'GET';
+    assert.equal((await worker.fetch(new Request(url, {method: otro}))).status, 404);
+  }
+  assert.deepEqual(llamadas, rutas.map(([method, ruta]) => [method, '/api/v1' + ruta]));
+});
 test('no sigue redirecciones ni expone Location con tokens',async()=>{
  const w=crearWorker({enviar:async(_,op)=>{assert.equal(op.redirect,'manual');return new Response(null,{status:302,headers:{Location:'https://otro.test'}});}});
  const r=await w.fetch(new Request('https://frontend.test/api/v1/usuarios/me'));assert.equal(r.status,302);assert.equal(r.headers.get('location'),null);
