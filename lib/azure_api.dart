@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 import 'dispositivos.dart';
@@ -41,6 +42,9 @@ class CuentaAzure {
   final String correo;
   final String estado;
   final List<String> permisos;
+  bool get creaCuentas => permisos.contains('USUARIOS_GESTIONAR');
+  bool get leeCuentas => permisos.contains('USUARIOS_LEER');
+  bool get abreCuentas => administraCuentas || creaCuentas || leeCuentas;
   bool get administraCuentas => permisos.contains('ADMINISTRACION_GLOBAL');
   bool get consultaAuditoria => permisos.contains('AUDITORIA_LEER');
 }
@@ -58,6 +62,21 @@ class PaginaAzure {
   bool get haySiguiente => total == null ? items.length == tamano : (pagina + 1) * tamano < total!;
 }
 
+class LimitesRed {
+  LimitesRed.fromJson(Map<String, dynamic> json)
+      : limiteEquiposUsuario = json['limiteEquiposUsuario'] as int,
+        ocupadosPorUsuario = Map<String, int>.unmodifiable(
+          objetoJson(json['ocupadosPorUsuario']).cast<String, int>(),
+        ),
+        version = json['version'] as int,
+        modoTunel = json['modoTunel'] as String;
+
+  final int limiteEquiposUsuario;
+  final Map<String, int> ocupadosPorUsuario;
+  final String modoTunel;
+  final int version;
+}
+
 class RedAzure {
   RedAzure.fromJson(Map<String, dynamic> json)
     : id = idJson(json['id']),
@@ -65,12 +84,16 @@ class RedAzure {
       nombre = json['nombre'] as String,
       estado = json['estado'] as String,
       cidr = json['cidr'] as String?,
+      descripcion = json['descripcion'] as String? ?? '',
+      version = json['version'] as int?,
       modoTunel = json['modoTunel'] as String?;
   final int id;
   final int propietarioId;
   final String nombre;
   final String estado;
   final String? cidr;
+  final String descripcion;
+  final int? version;
   final String? modoTunel;
   bool esPropietario(CuentaAzure cuenta) => propietarioId == cuenta.id;
 }
@@ -105,6 +128,39 @@ class AccesoAzure {
   final Duration expiraEn;
 }
 
+enum AccionRed {
+  suspender('suspension', 'Suspender red'),
+  reactivar('reactivacion', 'Reactivar red'),
+  eliminar('eliminacion', 'Eliminar red'),
+  retirarMiembro('retiro', 'Retirar miembro');
+
+  const AccionRed(this.ruta, this.etiqueta);
+  final String ruta;
+  final String etiqueta;
+}
+
+class OperacionAdministrativa {
+  OperacionAdministrativa.fromJson(Map<String, dynamic> json, {String? idConsulta, bool aceptada = false})
+    : id = uuidAdministrativo(json['id'] ?? json['operacionAdministrativaId'] ?? idConsulta),
+      estado = aceptada ? 'PENDIENTE' : (json['estado'] is String ? json['estado'] as String : '') {
+    if ((idConsulta != null && id.toLowerCase() != idConsulta.toLowerCase()) ||
+        !{'PENDIENTE', 'EN_PROCESO', 'APLICADA', 'FALLIDA'}.contains(estado)) {
+      throw const ExcepcionApi(502, 'RESPUESTA_INVALIDA');
+    }
+  }
+
+  final String id;
+  final String estado;
+  bool get terminal => estado == 'APLICADA' || estado == 'FALLIDA';
+}
+
+String uuidAdministrativo(Object? valor) {
+  if (valor is String && RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', caseSensitive: false).hasMatch(valor)) {
+    return valor;
+  }
+  throw const ExcepcionApi(502, 'RESPUESTA_INVALIDA');
+}
+
 /// API V3-V6. La propiedad de la red se comprueba otra vez en el servidor.
 /// Los perfiles y QR se entregan como bytes; no se registran ni persisten aquí.
 class AzureApi {
@@ -115,15 +171,14 @@ class AzureApi {
     this.alCaducar,
     this.limite = const Duration(seconds: 20),
   }) : _cliente = cliente ?? http.Client(),
-       baseUrl =
-           baseUrl ??
-           Uri.parse(
-             const String.fromEnvironment(
-               'SECURELINK_API_URL',
-               defaultValue: urlAzure,
-             ),
-           ) {
-    if (this.baseUrl.scheme != 'https' ||
+       baseUrl = baseUrl ?? _resolverApiConfigurada() {
+    final esLocal =
+        baseUrl == null &&
+        kIsWeb &&
+        _apiConfigurada == '/api/v1' &&
+        this.baseUrl.scheme == 'http' &&
+        this.baseUrl.host == '127.0.0.1';
+    if ((this.baseUrl.scheme != 'https' && !esLocal) ||
         this.baseUrl.host.isEmpty ||
         this.baseUrl.userInfo.isNotEmpty ||
         this.baseUrl.hasQuery ||
@@ -131,6 +186,15 @@ class AzureApi {
       throw ArgumentError('La API requiere una URL HTTPS sin credenciales.');
     }
   }
+
+  static const _apiConfigurada = String.fromEnvironment(
+    'SECURELINK_API_URL',
+    defaultValue: urlAzure,
+  );
+
+  static Uri _resolverApiConfigurada() => kIsWeb && _apiConfigurada == '/api/v1'
+      ? Uri.base.resolve(_apiConfigurada)
+      : Uri.parse(_apiConfigurada);
   final http.Client _cliente;
   final Uri baseUrl;
   final String? Function() obtenerToken;
@@ -143,6 +207,7 @@ class AzureApi {
     Map<String, Object>? datos,
     Map<String, String>? query,
     bool publica = false,
+    bool caducarEn401 = true,
     String acepta = 'application/json',
   }) async {
     final token = publica ? null : obtenerToken();
@@ -176,7 +241,12 @@ class AzureApi {
       throw const ExcepcionApi(0, 'SIN_CONEXION');
     }
     if (respuesta.statusCode < 200 || respuesta.statusCode >= 300) {
-      if (respuesta.statusCode == 401 && !publica) alCaducar?.call();
+      if (respuesta.statusCode == 401 &&
+          !publica &&
+          caducarEn401 &&
+          token == obtenerToken()) {
+        alCaducar?.call();
+      }
       var codigo = 'HTTP_${respuesta.statusCode}';
       try {
         final error = jsonDecode(utf8.decode(respuesta.bodyBytes));
@@ -215,6 +285,25 @@ class AzureApi {
     }
   }
 
+  Future<List<Map<String, dynamic>>> catalogoRecursos() async =>
+      listaJson(await _json('GET', 'administracion/recursos'));
+
+  Future<void> guardarRecurso(Map<String, Object> datos, {int? id}) async {
+    final sufijo = id == null ? '' : '/$id';
+    await _json('POST', 'administracion/recursos$sufijo', datos: datos);
+  }
+
+  Future<Map<String, dynamic>> recursosRed(int redId) async =>
+      objetoJson(await _json('GET', 'redes/$redId/recursos'));
+
+  Future<void> guardarConcesion(int redId, Map<String, Object> datos) async {
+    await _json('POST', 'redes/$redId/recursos/concesiones', datos: datos);
+  }
+
+  Future<void> retirarConcesion(int redId, int recursoId, int usuarioId) async {
+    await _json('POST', 'redes/$redId/recursos/$recursoId/usuarios/$usuarioId/retiro');
+  }
+
   Future<AccesoAzure> login(String correo, String contrasena) async {
     final json = objetoJson(
       await _json(
@@ -249,31 +338,112 @@ class AzureApi {
     await _json('POST', 'auth/logout');
   }
 
-  Future<List<RedAzure>> redes() async =>
-      listaJson(await _json('GET', 'redes', query: {'page': '0', 'size': '20'}))
-          .map(RedAzure.fromJson)
-          .toList();
+  Future<void> registrarCuenta(String nombre, String correo, String clave) async {
+    await _json(
+      'POST',
+      'auth/registro',
+      publica: true,
+      datos: {'nombre': nombre.trim(), 'correo': correo.trim(), 'contrasena': clave},
+    );
+  }
+
+  Future<CuentaAzure> miPerfil() async =>
+      CuentaAzure.fromJson(objetoJson(await _json('GET', 'usuarios/me')));
+
+  Future<void> editarMiPerfil(String nombre, String correo) async {
+    await _enviar('POST', 'usuarios/me/perfil', datos: {
+      'nombre': nombre.trim(),
+      'correo': correo.trim(),
+    });
+  }
+
+  Future<void> cambiarMiContrasena(String actual, String nueva) async {
+    try {
+      await _enviar(
+        'POST',
+        'usuarios/me/contrasena',
+        caducarEn401: false,
+        datos: {'contrasenaActual': actual, 'contrasenaNueva': nueva},
+      );
+    } on ExcepcionApi catch (error) {
+      if (error.estado != 401) rethrow;
+      // Un 401 aquí puede indicar una contraseña incorrecta o un JWT inválido.
+      await miPerfil();
+      throw const ExcepcionApi(400, 'CONTRASENA_ACTUAL_INCORRECTA');
+    }
+  }
+
+  Future<LimitesRed> limitesRed(int redId) async => LimitesRed.fromJson(
+    objetoJson(await _json('GET', 'redes/$redId/limites')),
+  );
+
+  Future<LimitesRed> actualizarLimitesRed(int redId, int limite, int version, String modoTunel) async =>
+    LimitesRed.fromJson(objetoJson(await _json(
+      'POST', 'redes/$redId/limites',
+      datos: {'limiteEquiposUsuario': limite, 'version': version, 'modoTunel': modoTunel},
+    )));
+
+  Future<List<T>> _listar<T>(String ruta, T Function(Map<String, dynamic>) convertir, int Function(T) id) async {
+    const tamano = 20;
+    final resultados = <int, T>{};
+    for (var pagina = 0; ; pagina++) {
+      final anterior = resultados.length;
+      final datos = PaginaAzure.fromJson(await _json('GET', ruta, query: {'page': '$pagina', 'size': '$tamano'}), pagina, tamano);
+      for (final item in datos.items) {
+        final convertido = convertir(item);
+        resultados[id(convertido)] = convertido;
+      }
+      if (!datos.haySiguiente || resultados.length == anterior) return resultados.values.toList();
+    }
+  }
+
+  Future<List<RedAzure>> redes() => _listar('redes', RedAzure.fromJson, (r) => r.id);
   Future<RedAzure> red(int id) async =>
       RedAzure.fromJson(objetoJson(await _json('GET', 'redes/$id')));
-  Future<RedAzure> crearRed(String nombre) async => RedAzure.fromJson(
+  Future<RedAzure> crearRed(String nombre, {String descripcion = ''}) async => RedAzure.fromJson(
     objetoJson(
       await _json(
         'POST',
         'redes',
         datos: {
           'nombre': nombre.trim(),
-          'descripcion': 'Administración de dispositivos SecureLink',
+          'descripcion': descripcion.trim(),
         },
       ),
     ),
   );
-  Future<List<EquipoAzure>> dispositivos(int redId) async => listaJson(
-    await _json(
-      'GET',
-      'redes/$redId/dispositivos',
-      query: {'page': '0', 'size': '20'},
-    ),
-  ).map(EquipoAzure.fromJson).toList();
+  Future<List<EquipoAzure>> dispositivos(int redId) =>
+      _listar('redes/$redId/dispositivos', EquipoAzure.fromJson, (e) => e.id);
+
+  Future<void> editarRed(int redId, String nombre, String descripcion, int version) async {
+    await _enviar('POST', 'redes/$redId/edicion', datos: {
+      'nombre': nombre.trim(), 'descripcion': descripcion.trim(), 'version': version,
+    });
+  }
+
+  Future<void> editarDispositivo(int redId, int equipoId, String nombre, String sistemaOperativo, int version) async {
+    await _enviar('POST', 'redes/$redId/dispositivos/$equipoId/edicion', datos: {
+      'nombre': nombre.trim(), 'sistemaOperativo': sistemaOperativo, 'version': version,
+    });
+  }
+
+  Future<void> agregarMiembro(int redId, int usuarioId) async {
+    await _enviar('POST', 'redes/$redId/miembros', datos: {'usuarioId': usuarioId});
+  }
+
+  Future<OperacionAdministrativa> solicitarOperacionRed(int redId, AccionRed accion, {int? usuarioId}) async {
+    final ruta = accion == AccionRed.retirarMiembro
+        ? 'redes/$redId/miembros/${idJson(usuarioId)}/retiro'
+        : 'redes/$redId/${accion.ruta}';
+    return OperacionAdministrativa.fromJson(objetoJson(await _json('POST', ruta)), aceptada: true);
+  }
+
+  Future<OperacionAdministrativa> consultarOperacionRed(int redId, String id) async {
+    final uuid = uuidAdministrativo(id);
+    return OperacionAdministrativa.fromJson(
+      objetoJson(await _json('GET', 'redes/$redId/operaciones-administrativas/$uuid')), idConsulta: uuid,
+    );
+  }
   Future<List<Map<String, dynamic>>> miembros(int redId) async =>
       listaJson(await _json('GET', 'redes/$redId/miembros'));
   Future<EquipoAzure> registrar(
@@ -316,14 +486,16 @@ class AzureApi {
     ),
   );
   Future<PaginaAzure> paginaAuditoria({int? redId, int pagina = 0,
-      int? usuarioId, DateTime? desde, DateTime? hasta}) async {
-    if (pagina < 0 || (usuarioId != null && usuarioId <= 0)) {
+      int? usuarioId, int? dispositivoId, DateTime? desde, DateTime? hasta}) async {
+    if (pagina < 0 || (usuarioId != null && usuarioId <= 0) ||
+        (dispositivoId != null && dispositivoId <= 0)) {
       throw ArgumentError('Filtro inválido');
     }
     return PaginaAzure.fromJson(await _json('GET',
       redId == null ? 'auditoria' : 'redes/$redId/auditoria', query: {
         'page': '$pagina', 'size': '20',
         if (usuarioId != null) 'usuarioId': '$usuarioId',
+        if (dispositivoId != null) 'dispositivoId': dispositivoId.toString(),
         if (desde != null) 'desde': desde.toUtc().toIso8601String(),
         if (hasta != null) 'hasta': hasta.toUtc().toIso8601String(),
       }), pagina, 20);
@@ -340,11 +512,90 @@ class AzureApi {
     await _json('GET', 'administracion/usuarios/$id/accesos-vpn'));
 
   Future<Map<String, dynamic>> cambiarEstadoCuenta(int id, String estado) async {
-    if (id <= 0 || !['SUSPENDIDO', 'ACTIVO'].contains(estado)) {
+    if (id <= 0 || !['SUSPENDIDO', 'ACTIVO', 'DADO_DE_BAJA'].contains(estado)) {
       throw ArgumentError('Estado de cuenta inválido');
     }
     return objetoJson(await _json('POST', 'administracion/usuarios/$id/estado',
       datos: {'estado': estado}));
+  }
+
+  Future<PaginaAzure> usuariosPorPermiso({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'usuarios',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<void> crearCuentaAdministrada(String nombre, String correo, String clave) async {
+    await _json('POST', 'usuarios', datos: {
+      'nombre': nombre.trim(), 'correo': correo.trim(), 'contrasena': clave,
+    });
+  }
+
+  Future<void> editarCuentaAdministrada(int id, String nombre, String correo) async {
+    await _json('POST', 'administracion/usuarios/$id/perfil', datos: {
+      'nombre': nombre.trim(), 'correo': correo.trim(),
+    });
+  }
+
+  Future<void> reemplazarRolesCuenta(int id, List<int> roles) async {
+    if (id <= 0 || roles.isEmpty || roles.length > 10 ||
+        roles.toSet().length != roles.length || roles.any((r) => r <= 0)) {
+      throw ArgumentError('Selecciona entre 1 y 10 roles distintos.');
+    }
+    await _json('POST', 'administracion/usuarios/$id/roles', datos: {'rolIds': roles});
+  }
+
+  Future<List<Map<String, dynamic>>> permisosPanel() async =>
+      listaJson(await _json('GET', 'administracion/permisos'));
+
+  Future<PaginaAzure> rolesPanel({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/roles',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<Map<String, dynamic>> rolPanel(int id) async =>
+      objetoJson(await _json('GET', 'administracion/roles/$id'));
+
+  Future<void> guardarRol({int? id, int? version, required String codigo,
+      required String nombre, required String descripcion, required List<int> permisos}) async {
+    if ((id != null && (version == null || version < 0)) ||
+        permisos.any((p) => p <= 0) || permisos.toSet().length != permisos.length) {
+      throw ArgumentError('Versión o permisos inválidos.');
+    }
+    await _json('POST', id == null ? 'administracion/roles' : 'administracion/roles/$id/edicion',
+      datos: {'nombre': nombre.trim(), 'descripcion': descripcion.trim(), 'permisoIds': permisos,
+        if (id == null) 'codigo': codigo.trim(), if (id != null) 'version': version!});
+  }
+
+  Future<void> eliminarRol(int id) async {
+    await _json('POST', 'administracion/roles/$id/eliminacion');
+  }
+
+  Future<PaginaAzure> gruposPanel({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/grupos',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<Map<String, dynamic>> grupoPanel(int id) async =>
+      objetoJson(await _json('GET', 'administracion/grupos/$id'));
+
+  Future<void> guardarGrupo({int? id, int? version, required String nombre,
+      required String descripcion, bool activo = true}) async {
+    if (id != null && (version == null || version < 0)) {
+      throw ArgumentError('Actualiza la versión antes de editar.');
+    }
+    await _json('POST', id == null ? 'administracion/grupos' : 'administracion/grupos/$id/edicion',
+      datos: {'nombre': nombre.trim(), 'descripcion': descripcion.trim(),
+        if (id != null) 'activo': activo, if (id != null) 'version': version!});
+  }
+
+  Future<void> desactivarGrupo(int id) async {
+    await _json('POST', 'administracion/grupos/$id/eliminacion');
+  }
+
+  Future<PaginaAzure> miembrosGrupo(int id, {int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/grupos/$id/miembros',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<void> asociarGrupo(int grupoId, int usuarioId, {required bool agregar}) async {
+    if (grupoId <= 0 || usuarioId <= 0) throw ArgumentError('Identificador inválido');
+    await _json('POST', 'administracion/grupos/$grupoId/miembros/$usuarioId/${agregar ? 'alta' : 'retiro'}');
   }
 
   Future<Map<String, dynamic>> revocar(int redId, int equipoId) async =>

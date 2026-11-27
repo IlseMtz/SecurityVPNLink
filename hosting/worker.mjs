@@ -5,10 +5,20 @@ const headersPrivados = {'Cache-Control':'no-store, private', 'Pragma':'no-cache
   'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer'};
 
 function rutaPermitida(path, method) {
-  // Ampliación mínima para VS15 y VS24; Azure sigue autorizando cada operación.
-  if (method === 'GET' && /^\/api\/v1\/(auditoria|administracion\/usuarios(?:\/[1-9]\d*(?:\/accesos-vpn)?)?)$/.test(path)) return true;
-  if (method === 'POST' && /^\/api\/v1\/administracion\/usuarios\/[1-9]\d*\/estado$/.test(path)) return true;
-  return /^\/api\/v1\/(auth\/(login|logout)|usuarios\/me|redes(?:\/\d+(?:\/(miembros|auditoria|dispositivos(?:\/\d+\/(configuracion(?:\/qr)?|vpn|conexion|revocacion))?|operaciones-vpn\/[0-9a-fA-F-]{36}))?)?)$/.test(path);
+  if (/^\/api\/v1\/(auth\/(login|logout|registro)|usuarios\/me\/(perfil|contrasena))$/.test(path)) return method === 'POST';
+  if (path === '/api/v1/usuarios/me') return method === 'GET';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/limites$/.test(path)) return ['GET','POST'].includes(method);
+  if (path === '/api/v1/administracion/recursos') return method === 'GET' || method === 'POST';
+  if (/^\/api\/v1\/administracion\/recursos\/[1-9]\d*$/.test(path)) return method === 'POST';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/recursos$/.test(path)) return method === 'GET';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/recursos\/(concesiones|[1-9]\d*\/usuarios\/[1-9]\d*\/retiro)$/.test(path)) return method === 'POST';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/(?:edicion|suspension|reactivacion|eliminacion|dispositivos\/[1-9]\d*\/edicion|miembros\/[1-9]\d*\/retiro)$/.test(path)) return method === 'POST';
+  if (/^\/api\/v1\/redes\/[1-9]\d*\/operaciones-administrativas\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(path)) return method === 'GET';
+  // VS41: rutas y métodos explícitos de V6. Azure valida los permisos.
+  if (path === '/api/v1/usuarios') return ['GET', 'POST'].includes(method);
+  if (method === 'GET' && /^\/api\/v1\/(auditoria|administracion\/permisos|administracion\/usuarios(?:\/[1-9]\d*(?:\/accesos-vpn)?)?|administracion\/roles(?:\/[1-9]\d*)?|administracion\/grupos(?:\/[1-9]\d*(?:\/miembros)?)?)$/.test(path)) return true;
+  if (method === 'POST' && /^\/api\/v1\/administracion\/(usuarios\/[1-9]\d*\/(perfil|estado|roles)|roles(?:\/[1-9]\d*\/(edicion|eliminacion))?|grupos(?:\/[1-9]\d*\/(edicion|eliminacion|miembros\/[1-9]\d*\/(alta|retiro)))?)$/.test(path)) return true;
+  return /^\/api\/v1\/redes(?:\/\d+(?:\/(miembros|auditoria|dispositivos(?:\/\d+\/(configuracion(?:\/qr)?|vpn|conexion|revocacion))?|operaciones-vpn\/[0-9a-fA-F-]{36}))?)?$/.test(path);
 }
 
 export function crearWorker({assetsLocales=assets, revision=engineRevision, enviar=fetch}={}) {
