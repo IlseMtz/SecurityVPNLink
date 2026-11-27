@@ -1,4 +1,5 @@
 import 'administracion_cuentas.dart';
+import 'administracion_catalogos.dart';
 import 'resumen_vpn.dart';
 import 'estado_emision_vpn.dart';
 import 'reporte_auditoria.dart';
@@ -484,6 +485,22 @@ class _RedesPageState extends State<RedesPage> {
     }
   }
 
+  Future<void> abrirAdministracion(String tipo) async {
+    try {
+      await widget.sesion.actualizarPermisos();
+      final cuenta = widget.sesion.cuenta;
+      if (!mounted || cuenta == null) return;
+      if (tipo == 'cuentas' ? !cuenta.abreCuentas : !cuenta.administraCuentas) {
+        setState(() => error = 'No tienes permiso para esta operación.');
+        return;
+      }
+      await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => tipo == 'cuentas'
+        ? AdministracionCuentasPage(api: api, cuentaActual: cuenta)
+        : CatalogosAdministrativosPage(api: api, cuentaActual: cuenta, grupos: tipo == 'grupos')));
+      if (mounted && widget.sesion.cuenta != null) await widget.sesion.actualizarPermisos();
+    } catch (e) { if (mounted) setState(() => error = mensajeSeguro(e)); }
+  }
+
   Future<void> verAuditoria() async {
     final seleccion = red;
     if (!propietario || seleccion == null) return;
@@ -576,11 +593,16 @@ class _RedesPageState extends State<RedesPage> {
                 ),
                 const SizedBox(height: 24),
                 Wrap(spacing: 12, runSpacing: 8, children: [
-                  if (cuenta.administraCuentas)
+                  if (cuenta.abreCuentas)
                     OutlinedButton.icon(icon: const Icon(Icons.manage_accounts),
                       label: const Text('Administrar cuentas'),
-                      onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
-                        builder: (_) => AdministracionCuentasPage(api: api, cuentaActual: cuenta)))),
+                      onPressed: () => abrirAdministracion('cuentas')),
+                  if (cuenta.administraCuentas) ...[
+                    OutlinedButton.icon(icon: const Icon(Icons.admin_panel_settings_outlined),
+                      label: const Text('Roles y permisos'), onPressed: () => abrirAdministracion('roles')),
+                    OutlinedButton.icon(icon: const Icon(Icons.groups_outlined),
+                      label: const Text('Grupos administrativos'), onPressed: () => abrirAdministracion('grupos')),
+                  ],
                   if (cuenta.consultaAuditoria)
                     OutlinedButton.icon(icon: const Icon(Icons.history),
                       label: const Text('Auditoría global'),

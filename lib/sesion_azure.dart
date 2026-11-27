@@ -43,6 +43,16 @@ class SesionAzure extends ChangeNotifier {
     if (!_cerrada) notifyListeners();
   }
 
+  Future<void> actualizarPermisos() async {
+    final token = _token;
+    if (token == null) return;
+    final perfil = await api.miPerfil();
+    if (_cerrada || _token != token) return;
+    if (perfil.estado != 'ACTIVO') { _expirar(); return; }
+    cuenta = perfil;
+    notifyListeners();
+  }
+
   Future<void> salir() async {
     final token = _token;
     try {

@@ -42,6 +42,9 @@ class CuentaAzure {
   final String correo;
   final String estado;
   final List<String> permisos;
+  bool get creaCuentas => permisos.contains('USUARIOS_GESTIONAR');
+  bool get leeCuentas => permisos.contains('USUARIOS_LEER');
+  bool get abreCuentas => administraCuentas || creaCuentas || leeCuentas;
   bool get administraCuentas => permisos.contains('ADMINISTRACION_GLOBAL');
   bool get consultaAuditoria => permisos.contains('AUDITORIA_LEER');
 }
@@ -509,11 +512,90 @@ class AzureApi {
     await _json('GET', 'administracion/usuarios/$id/accesos-vpn'));
 
   Future<Map<String, dynamic>> cambiarEstadoCuenta(int id, String estado) async {
-    if (id <= 0 || !['SUSPENDIDO', 'ACTIVO'].contains(estado)) {
+    if (id <= 0 || !['SUSPENDIDO', 'ACTIVO', 'DADO_DE_BAJA'].contains(estado)) {
       throw ArgumentError('Estado de cuenta inválido');
     }
     return objetoJson(await _json('POST', 'administracion/usuarios/$id/estado',
       datos: {'estado': estado}));
+  }
+
+  Future<PaginaAzure> usuariosPorPermiso({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'usuarios',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<void> crearCuentaAdministrada(String nombre, String correo, String clave) async {
+    await _json('POST', 'usuarios', datos: {
+      'nombre': nombre.trim(), 'correo': correo.trim(), 'contrasena': clave,
+    });
+  }
+
+  Future<void> editarCuentaAdministrada(int id, String nombre, String correo) async {
+    await _json('POST', 'administracion/usuarios/$id/perfil', datos: {
+      'nombre': nombre.trim(), 'correo': correo.trim(),
+    });
+  }
+
+  Future<void> reemplazarRolesCuenta(int id, List<int> roles) async {
+    if (id <= 0 || roles.isEmpty || roles.length > 10 ||
+        roles.toSet().length != roles.length || roles.any((r) => r <= 0)) {
+      throw ArgumentError('Selecciona entre 1 y 10 roles distintos.');
+    }
+    await _json('POST', 'administracion/usuarios/$id/roles', datos: {'rolIds': roles});
+  }
+
+  Future<List<Map<String, dynamic>>> permisosPanel() async =>
+      listaJson(await _json('GET', 'administracion/permisos'));
+
+  Future<PaginaAzure> rolesPanel({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/roles',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<Map<String, dynamic>> rolPanel(int id) async =>
+      objetoJson(await _json('GET', 'administracion/roles/$id'));
+
+  Future<void> guardarRol({int? id, int? version, required String codigo,
+      required String nombre, required String descripcion, required List<int> permisos}) async {
+    if ((id != null && (version == null || version < 0)) ||
+        permisos.any((p) => p <= 0) || permisos.toSet().length != permisos.length) {
+      throw ArgumentError('Versión o permisos inválidos.');
+    }
+    await _json('POST', id == null ? 'administracion/roles' : 'administracion/roles/$id/edicion',
+      datos: {'nombre': nombre.trim(), 'descripcion': descripcion.trim(), 'permisoIds': permisos,
+        if (id == null) 'codigo': codigo.trim(), if (id != null) 'version': version!});
+  }
+
+  Future<void> eliminarRol(int id) async {
+    await _json('POST', 'administracion/roles/$id/eliminacion');
+  }
+
+  Future<PaginaAzure> gruposPanel({int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/grupos',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<Map<String, dynamic>> grupoPanel(int id) async =>
+      objetoJson(await _json('GET', 'administracion/grupos/$id'));
+
+  Future<void> guardarGrupo({int? id, int? version, required String nombre,
+      required String descripcion, bool activo = true}) async {
+    if (id != null && (version == null || version < 0)) {
+      throw ArgumentError('Actualiza la versión antes de editar.');
+    }
+    await _json('POST', id == null ? 'administracion/grupos' : 'administracion/grupos/$id/edicion',
+      datos: {'nombre': nombre.trim(), 'descripcion': descripcion.trim(),
+        if (id != null) 'activo': activo, if (id != null) 'version': version!});
+  }
+
+  Future<void> desactivarGrupo(int id) async {
+    await _json('POST', 'administracion/grupos/$id/eliminacion');
+  }
+
+  Future<PaginaAzure> miembrosGrupo(int id, {int pagina = 0}) async =>
+      PaginaAzure.fromJson(await _json('GET', 'administracion/grupos/$id/miembros',
+        query: {'page': '$pagina', 'size': '20'}), pagina, 20);
+
+  Future<void> asociarGrupo(int grupoId, int usuarioId, {required bool agregar}) async {
+    if (grupoId <= 0 || usuarioId <= 0) throw ArgumentError('Identificador inválido');
+    await _json('POST', 'administracion/grupos/$grupoId/miembros/$usuarioId/${agregar ? 'alta' : 'retiro'}');
   }
 
   Future<Map<String, dynamic>> revocar(int redId, int equipoId) async =>

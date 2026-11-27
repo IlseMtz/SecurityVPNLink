@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'azure_api.dart';
+import 'administracion_formularios.dart';
+import 'api_error.dart';
 
 /// Solo ofrece operaciones documentadas en V6. El servidor autoriza cada petición.
 class AdministracionCuentasPage extends StatefulWidget {
@@ -17,11 +19,19 @@ class _AdministracionCuentasPageState extends State<AdministracionCuentasPage> {
   @override
   void initState() {
     super.initState();
-    if (widget.cuentaActual.administraCuentas) datos = widget.api.cuentas();
+    if (puedeListar) datos = consultar(0);
+  }
+  bool get puedeListar => widget.cuentaActual.administraCuentas || widget.cuentaActual.leeCuentas;
+  Future<PaginaAzure> consultar(int pagina) => widget.cuentaActual.administraCuentas
+    ? widget.api.cuentas(pagina: pagina) : widget.api.usuariosPorPermiso(pagina: pagina);
+  Future<void> crear() async {
+    if (!widget.cuentaActual.creaCuentas) return;
+    final ok = await formularioCuentaAdministrada(context, widget.api);
+    if (mounted && ok && puedeListar) cargar(0);
   }
   void cargar(int nueva) => setState(() {
     pagina = nueva;
-    datos = widget.api.cuentas(pagina: nueva);
+    datos = consultar(nueva);
   });
   Future<void> abrir(int id) async {
     await showDialog<void>(context: context, builder: (_) => EstadoCuentaDialog(
@@ -30,9 +40,13 @@ class _AdministracionCuentasPageState extends State<AdministracionCuentasPage> {
   }
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Administrar cuentas')),
-    body: !widget.cuentaActual.administraCuentas
-      ? const Center(child: Text('No tienes permiso para administrar cuentas.'))
+    appBar: AppBar(title: const Text('Administrar cuentas'), actions: [
+      if (widget.cuentaActual.creaCuentas) TextButton(onPressed: crear, child: const Text('Crear cuenta')),
+    ]),
+    body: !puedeListar
+      ? Center(child: Text(widget.cuentaActual.creaCuentas
+          ? 'Puedes crear cuentas. Tu permiso no incluye consultar el listado.'
+          : 'No tienes permiso para administrar cuentas.'))
       : FutureBuilder<PaginaAzure>(future: datos, builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
@@ -59,7 +73,7 @@ class _AdministracionCuentasPageState extends State<AdministracionCuentasPage> {
                       subtitle: Text('${cuenta['correo'] ?? ''}\n${cuenta['estado'] ?? 'Sin confirmar'} · Usuario $id'),
                       isThreeLine: true,
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: id is int && id > 0 ? () => abrir(id) : null,
+                      onTap: widget.cuentaActual.administraCuentas && id is int && id > 0 ? () => abrir(id) : null,
                     ));
                 })),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -86,7 +100,7 @@ class EstadoCuentaDialog extends StatefulWidget {
 
 class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
   Map<String, dynamic>? cuenta, retirada;
-  String? error;
+  String? error, aviso;
   bool ocupado = false;
   bool consultaPendiente = false;
   int consultas = 0;
@@ -116,7 +130,7 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
       setState(() { cuenta = perfil; retirada = acceso; consultaPendiente = false; });
       programar();
     } catch (e) {
-      if (mounted) setState(() => error = mensajeSeguro(e));
+      if (mounted) setState(() => error = mensajeAdministracion(e));
     } finally {
       if (mounted) setState(() => ocupado = false);
     }
@@ -124,7 +138,7 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
   void programar() {
     timer?.cancel();
     consultas = 0;
-    if (estado != 'SUSPENDIDO' || completa) return;
+    if (!['SUSPENDIDO', 'DADO_DE_BAJA'].contains(estado) || completa) return;
     timer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (++consultas > 20) { timer?.cancel(); return; }
       consultarRetirada();
@@ -140,18 +154,21 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
       if (completa) timer?.cancel();
     } catch (e) {
       timer?.cancel();
-      if (mounted) setState(() { error = mensajeSeguro(e); consultaPendiente = true; });
+      if (mounted) setState(() { error = mensajeAdministracion(e); consultaPendiente = true; });
     } finally {
       if (mounted) setState(() => ocupado = false);
     }
   }
   Future<void> cambiar(String nuevo) async {
     if (!autorizado || ocupado || cuenta == null || consultaPendiente) return;
-    if (nuevo == 'SUSPENDIDO' && widget.usuarioId == widget.cuentaActual.id) return;
+    if (nuevo != 'ACTIVO' && widget.usuarioId == widget.cuentaActual.id) return;
+    if (estado == 'DADO_DE_BAJA' && nuevo != 'DADO_DE_BAJA') return;
     if (nuevo == 'ACTIVO' && (estado != 'SUSPENDIDO' || !completa)) return;
     final confirmar = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
-      title: Text(nuevo == 'SUSPENDIDO' ? 'Suspender cuenta' : 'Reactivar cuenta'),
-      content: Text(nuevo == 'SUSPENDIDO'
+      title: Text(nuevo == 'DADO_DE_BAJA' ? 'Dar de baja cuenta definitivamente' : nuevo == 'SUSPENDIDO' ? 'Suspender cuenta' : 'Reactivar cuenta'),
+      content: Text(nuevo == 'DADO_DE_BAJA'
+        ? 'La cuenta no podrá recuperarse. Se invalidarán sus sesiones y se solicitará la retirada de todos sus perfiles VPN. ¿Continuar?'
+        : nuevo == 'SUSPENDIDO'
         ? 'Se impedirá iniciar sesión y se solicitará retirar todos los perfiles VPN de esta cuenta. ¿Continuar?'
         : 'La cuenta podrá volver a iniciar sesión. Sus perfiles revocados no se reactivarán. ¿Continuar?'),
       actions: [
@@ -168,10 +185,72 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
       setState(() { retirada = datos; consultaPendiente = false; });
       programar();
     } catch (e) {
-      if (mounted) setState(() { error = mensajeSeguro(e); consultaPendiente = true; });
+      if (mounted) setState(() { error = mensajeAdministracion(e); consultaPendiente = true; });
     } finally {
       if (mounted) setState(() => ocupado = false);
     }
+  }
+  String etiquetas(Object? valores) => valores is List
+    ? valores.map((v) => v is Map ? '${v['codigo'] ?? v['nombre'] ?? ''}' : '$v').join(', ')
+    : 'Sin datos';
+
+  void invalidarSesionPropia() {
+    if (widget.usuarioId == widget.cuentaActual.id) widget.api.alCaducar?.call();
+  }
+
+  Future<void> editarPerfil() async {
+    if (!autorizado || ocupado || cuenta == null) return;
+    timer?.cancel();
+    final ok = await formularioCuentaAdministrada(context, widget.api, cuenta: cuenta);
+    if (ok) {
+      invalidarSesionPropia();
+      if (widget.usuarioId == widget.cuentaActual.id && widget.api.alCaducar != null) return;
+    }
+    if (!mounted) return;
+    if (ok) setState(() => aviso = 'Perfil actualizado; el servidor invalidó las sesiones de la cuenta.');
+    await cargar();
+  }
+
+  Future<void> editarRoles() async {
+    if (!autorizado || ocupado || cuenta == null) return;
+    timer?.cancel();
+    setState(() { ocupado = true; error = null; });
+    try {
+      final actual = await widget.api.cuentaAdministrada(widget.usuarioId);
+      final roles = <Map<String, dynamic>>[];
+      for (var pagina = 0; ; pagina++) {
+        if (pagina >= 100) throw const ExcepcionApi(502, 'CATALOGO_INCOMPLETO');
+        final resultado = await widget.api.rolesPanel(pagina: pagina);
+        roles.addAll(resultado.items);
+        if (!resultado.haySiguiente) break;
+      }
+      final seleccion = <int>{};
+      if (actual['roles'] is! List) throw const ExcepcionApi(502, 'RESPUESTA_INVALIDA');
+      for (final r in actual['roles'] as List) {
+        final codigo = r is Map ? r['codigo'] : r;
+        final coincidencias = roles.where((v) => v['codigo'] == codigo ||
+          (r is Map && catalogoId(v, 'id_rol') == (r['id_rol'] ?? r['id'])));
+        if (coincidencias.isEmpty) throw const ExcepcionApi(502, 'RESPUESTA_INVALIDA');
+        seleccion.add(catalogoId(coincidencias.first, 'id_rol'));
+      }
+      if (!mounted) return;
+      final ok = await showDialog<bool>(context: context, barrierDismissible: false, builder: (_) => FormularioAdministrativo(
+        titulo: 'Reemplazar roles', campos: const [],
+        aviso: 'Selecciona de 1 a 10 roles. Se reemplazarán TODAS las asignaciones y se invalidarán las sesiones. '
+          'El servidor impide retirar al último ADMIN activo.',
+        confirmacion: '¿Reemplazar las asignaciones e invalidar las sesiones de esta cuenta?',
+        minimo: 1, maximo: 10, seleccion: seleccion,
+        opciones: {for (final r in roles) catalogoId(r, 'id_rol'): '${r['codigo']} · ${r['nombre'] ?? ''}'},
+        guardar: (_, elegidos, _) => widget.api.reemplazarRolesCuenta(widget.usuarioId, elegidos.toList()),
+      ));
+      if (ok == true) {
+        invalidarSesionPropia();
+        if (widget.usuarioId == widget.cuentaActual.id && widget.api.alCaducar != null) return;
+      }
+      if (mounted && ok == true) setState(() => aviso = 'Roles reemplazados; el servidor invalidó las sesiones de la cuenta.');
+    } catch (e) { if (mounted) setState(() => error = mensajeAdministracion(e)); }
+    finally { if (mounted) setState(() => ocupado = false); }
+    if (mounted && error == null) await cargar();
   }
   @override
   Widget build(BuildContext context) => AlertDialog(
@@ -180,7 +259,16 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
         if (!autorizado) const Text('No tienes permiso para administrar cuentas.')
         else ...[
-          if (cuenta != null) Text('${cuenta!['nombre'] ?? ''} · ${cuenta!['correo'] ?? ''}'),
+          if (cuenta != null) ...[
+            Text('${cuenta!['nombre'] ?? ''} · ${cuenta!['correo'] ?? ''}'),
+            Text('Roles: ${etiquetas(cuenta!['roles'])}'),
+            Text('Permisos: ${etiquetas(cuenta!['permisos'])}'),
+            if (estado != 'DADO_DE_BAJA') ...[
+              TextButton(onPressed: ocupado || consultaPendiente ? null : editarPerfil, child: const Text('Editar perfil de cuenta')),
+              TextButton(onPressed: ocupado || consultaPendiente ? null : editarRoles, child: const Text('Reemplazar roles')),
+            ],
+          ],
+          if (aviso != null) Text(aviso!),
           Text('Estado de cuenta: $estado'),
           if (retirada != null) Text(completa
             ? 'El servidor confirma la retirada completa de los perfiles anteriores.'
@@ -191,13 +279,20 @@ class _EstadoCuentaDialogState extends State<EstadoCuentaDialog> {
           if (consultaPendiente) const Text('Actualiza los datos para comprobar el resultado antes de repetir la operación.'),
           if (ocupado) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
           if (widget.usuarioId == widget.cuentaActual.id)
-            const Text('No puedes suspender tu propia cuenta.'),
+            const Text('No puedes suspender ni dar de baja tu propia cuenta.'),
           if (estado == 'ACTIVO' && widget.usuarioId != widget.cuentaActual.id)
             FilledButton(onPressed: ocupado || consultaPendiente ? null : () => cambiar('SUSPENDIDO'), child: const Text('Suspender cuenta')),
           if (estado == 'SUSPENDIDO') ...[
             FilledButton(onPressed: ocupado || consultaPendiente || !completa ? null : () => cambiar('ACTIVO'), child: const Text('Reactivar cuenta')),
             if (!completa && widget.usuarioId != widget.cuentaActual.id)
               TextButton(onPressed: ocupado || consultaPendiente ? null : () => cambiar('SUSPENDIDO'), child: const Text('Reintentar retirada de perfiles')),
+          ],
+          if (estado != 'DADO_DE_BAJA' && cuenta != null && widget.usuarioId != widget.cuentaActual.id)
+            TextButton(onPressed: ocupado || consultaPendiente ? null : () => cambiar('DADO_DE_BAJA'), child: const Text('Dar de baja definitivamente')),
+          if (estado == 'DADO_DE_BAJA') ...[
+            const Text('Baja definitiva: esta cuenta no puede recuperarse.'),
+            if (!completa) TextButton(onPressed: ocupado || consultaPendiente ? null : () => cambiar('DADO_DE_BAJA'),
+              child: const Text('Reintentar retirada de perfiles')),
           ],
           TextButton(onPressed: ocupado ? null : cargar, child: const Text('Actualizar cuenta y retirada')),
         ],
