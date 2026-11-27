@@ -143,7 +143,11 @@ class _CatalogosAdministrativosPageState extends State<CatalogosAdministrativosP
           IconButton(tooltip: 'Actualizar catálogo', onPressed: ocupado ? null : () => cargar(), icon: const Icon(Icons.refresh)),
         ])),
         if (aviso != null) Padding(padding: const EdgeInsets.all(12), child: Text(aviso!)),
-        if (ocupado) const LinearProgressIndicator(),
+        if (ocupado)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: Text('Operación en curso…'),
+            ),
         Expanded(child: FutureBuilder<PaginaAzure>(future: datos, builder: (context, s) {
           if (s.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
           if (s.hasError) return Center(child: Text(mensajeAdministracion(s.error!)));

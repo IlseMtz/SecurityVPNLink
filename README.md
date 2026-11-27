@@ -68,15 +68,52 @@ El dominio `chatgpt.site` pertenece al alojamiento actual. Cambiar de proveedor/
 
 ## Backend y desarrollo local
 
+Para ejecutar la aplicación web en Windows, desde la raíz del proyecto:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tool\ejecutar_web.ps1
+```
+
+Abre `http://127.0.0.1:8765` y deja la terminal abierta. El script usa Flutter desde `.tools/flutter` si existe, o desde el PATH, y requiere Node.js. Sirve la aplicación y el intermediario de Azure en la misma dirección. Para reutilizar la última compilación, agrega `-SinCompilar`. Para usar otro puerto, agrega `-Puerto 8766`. Detén el servidor con `Ctrl+C`.
+
 Backend: https://nero.northcentralus.cloudapp.azure.com/api/v1
 
 El contrato vigente usa `/redes/{redId}/dispositivos`, configuración, QR, operaciones VPN y auditoría. El formulario usa WINDOWS, ANDROID, IOS, LINUX o MACOS. No utiliza el antiguo POST `/dispositivos`.
 
-Azure rechaza CORS desde orígenes nuevos, incluido localhost. `flutter run -d chrome` permite revisar la interfaz local, pero la integración HTTP requiere un origen permitido por Azure o servir la web y el Worker juntos mediante una herramienta local compatible con Workers. El script prepara la compilación con `/api/v1` del sitio publicado; no configura CORS en Azure. Para otro despliegue, usar `-ApiUrl 'https://nuevo-origen/api/v1'` y publicar el intermediario en ese mismo origen.
+Para probar el login y el registro desde el navegador, usa el script de arriba y abre `http://127.0.0.1:8765`. El arranque con `flutter run -d chrome` puede elegir un puerto distinto cada vez y, con la configuración predeterminada, llama directamente al dominio de Azure. Si Azure no permite ese origen exacto (incluido el puerto), el navegador rechaza la consulta previa CORS. El script compila con `/api/v1` y sirve el intermediario en el mismo origen que la aplicación. Para otro despliegue, usar `-ApiUrl 'https://nuevo-origen/api/v1'` y publicar el intermediario en ese mismo origen.
 
 El Worker reenvía solo rutas permitidas al host fijo de Azure; no reenvía cookies ni sigue redirecciones. La autorización real la aplica Azure. No quitar estas restricciones para resolver un error CORS.
 
 ## Alcance y pruebas
+
+### VS-39: administrar redes, miembros y equipos
+
+Desde el panel, usa **Crear red** para indicar nombre y descripción. Selecciona una red propia y abre **Administrar red** para editarla, administrar miembros por ID y solicitar suspensión, reactivación o eliminación. La ventana muestra el UUID y consulta la operación cada cuatro segundos mientras esté abierta. Desde **Operación de …** puedes retomar la consulta durante la sesión, incluso si la red eliminada dejó de aparecer en el selector. En caso de `FALLIDA`, reintenta la misma solicitud. El icono de lápiz del dispositivo permite editar su nombre y sistema operativo. Si el servidor responde `VERSION_SUPERADA`, actualiza los datos antes de volver a enviar.
+
+```powershell
+.\.tools\flutter\bin\flutter.bat test test/vs39_red_test.dart --reporter expanded
+node --test hosting/test_worker.mjs
+```
+
+La aceptación de Azure y WireGuard debe hacerse con cuentas y redes de prueba autorizadas. Usa una cuenta propietaria, una miembro activa y otra ajena. Conserva los UUID y códigos de respuesta como evidencia, sin incluir tokens, archivos de configuración ni QR en las capturas.
+
+1. Crea tres redes propias y verifica que la cuarta se rechaza en Azure. Una red nueva debe comenzar `PENDIENTE` sin CIDR. Comprueba que la cuenta miembro solo vea las redes a las que pertenece. Edita una red y un equipo con su versión vigente, luego verifica `409 VERSION_SUPERADA` con la anterior. Repite la edición como miembro y comprueba el rechazo del servidor.
+2. Agrega a la cuenta miembro y registra equipos hasta cinco habilitados. Comprueba en Azure el rechazo del sexto. Solicita un perfil, espera `APLICADA` en `operaciones-vpn` y confirma que la red ya tiene CIDR. Descarga el `.conf` u obtén el QR desde Flutter e impórtalo en WireGuard. Comprueba handshake, salida IPv4 por Azure y acceso permitido dentro de la red. Usa un recurso de prueba de otra red para verificar aislamiento. La cuenta ajena debe recibir un rechazo al solicitar el perfil o la consulta de operaciones.
+3. Suspende y reactiva la red de prueba. Anota el UUID de cada acción y confirma `APLICADA` en `operaciones-administrativas`. Comprueba que la suspensión conserva cupos y que la reactivación solo restaura perfiles vigentes. Ante un `FALLIDA` en un entorno de pruebas, corrige la causa y reintenta la misma acción.
+4. Retira al miembro de una red de prueba y verifica que sus peers de esa red se revocan y los cupos se liberan después de `APLICADA`. Comprueba que su perfil en otra red sigue vigente y que el propietario no puede retirarse a sí mismo. Por último, elimina una red de prueba y verifica la retirada de sus peers y la liberación del cupo de red al confirmarse la operación.
+
+### VS-8: cuenta propia y autenticación
+
+VS-8 cubre las peticiones 02–07 de la guía V6. Usa **Crear cuenta** desde el inicio de sesión y **Mi cuenta** desde la barra del panel para consultar el perfil, editar el nombre o correo y cambiar la contraseña. Las dos ediciones y el cierre de todas las sesiones requieren volver a entrar. El registro deja al usuario en el formulario de acceso. La asignación del rol `USUARIO_VPN`, la emisión del JWT y su invalidación corresponden a Azure.
+
+Para reproducir la evidencia automatizada de VS-8 desde PowerShell:
+
+```powershell
+.\.tools\flutter\bin\flutter.bat test test/vs8_cuenta_test.dart --reporter expanded
+node --test hosting/test_worker.mjs
+```
+
+Las pruebas de Flutter usan respuestas HTTP controladas de la API V6. Para la aceptación en Azure, utiliza una cuenta de prueba y dos sesiones independientes. Registra y verifica el rol, inicia sesión y comprueba `expiresIn: 3600`. Repite con credenciales inválidas. Consulta el perfil, verifica el rechazo de una contraseña actual incorrecta y confirma cada operación de invalidación por separado (edición de perfil, cambio de contraseña y logout). Tras cada operación, `GET /usuarios/me` debe devolver `401` al usar el token de la otra sesión. Registra códigos y pantallas sin capturar contraseñas ni JWT. La entrega de archivo y QR se verifica en VS-14.
 
 Se conservan las pruebas del contrato Azure, pantallas, sesión, reposición y del intermediario. Usan dobles controlados: no demuestran por sí mismas conectividad real de WireGuard. La integración Azure y la aceptación física deben verificarse por separado. La entrega presencial requiere comprobar identidad; la importación del perfil y el acceso al laboratorio se prueban en el equipo del propietario.
 

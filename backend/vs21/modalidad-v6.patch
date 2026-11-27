@@ -1,0 +1,164 @@
+diff --git a/src/main/java/mx/securelink/backend/api/ManagementController.java b/src/main/java/mx/securelink/backend/api/ManagementController.java
+index 16cdab2..d597dec 100644
+--- a/src/main/java/mx/securelink/backend/api/ManagementController.java
++++ b/src/main/java/mx/securelink/backend/api/ManagementController.java
+@@ -36,7 +36,8 @@ public class ManagementController {
+     @PostMapping("/usuarios/me/perfil")
+     IdentityService.User profile(@AuthenticationPrincipal Jwt jwt,@Valid @RequestBody Profile b) { return profiles.profile(actor(jwt),actor(jwt),b.nombre(),b.correo(),false); }
+     public record LimitsEdit(@NotNull @Min(1) @Max(5) Integer limiteEquiposUsuario,
+-        @NotNull @PositiveOrZero Long version) { }
++        @NotNull @PositiveOrZero Long version,
++        @NotBlank @Pattern(regexp="SPLIT|FULL") String modoTunel) { }
+ 
+     @GetMapping("/redes/{redId}/limites")
+     NetworkService.Limits limits(@PathVariable long redId, @AuthenticationPrincipal Jwt jwt) {
+@@ -46,7 +47,7 @@ public class ManagementController {
+     @PostMapping("/redes/{redId}/limites")
+     NetworkService.Limits updateLimits(@PathVariable long redId, @AuthenticationPrincipal Jwt jwt,
+         @Valid @RequestBody LimitsEdit body) {
+-        return networkService.updateLimits(redId, actor(jwt), body.limiteEquiposUsuario(), body.version());
++        return networkService.updateLimits(redId, actor(jwt), body.limiteEquiposUsuario(), body.version(), body.modoTunel());
+     }
+ 
+     @PostMapping("/redes/{redId}/edicion")
+diff --git a/src/main/java/mx/securelink/backend/api/NetworkService.java b/src/main/java/mx/securelink/backend/api/NetworkService.java
+index 41640f4..fc26b8e 100644
+--- a/src/main/java/mx/securelink/backend/api/NetworkService.java
++++ b/src/main/java/mx/securelink/backend/api/NetworkService.java
+@@ -128,7 +128,7 @@ public class NetworkService {
+         page(page,size);visible(id,actor);
+         return db.query("SELECT * FROM dispositivo WHERE id_red=? ORDER BY id_dispositivo LIMIT ? OFFSET ?",DEVICE,id,size,(long)page*size);
+     }
+-    public record Limits(int limiteEquiposUsuario, Map<Long,Integer> ocupadosPorUsuario, long version) {}
++    public record Limits(int limiteEquiposUsuario, Map<Long,Integer> ocupadosPorUsuario, long version, String modoTunel) {}
+ 
+     private Limits readLimits(Network net) {
+         int limit = db.queryForObject("SELECT limite_equipos_usuario FROM red_vpn WHERE id_red=?", Integer.class, net.id());
+@@ -137,14 +137,14 @@ public class NetworkService {
+             SELECT id_usuario, COUNT(*) AS usados FROM dispositivo
+             WHERE id_red=? AND cupo_red IS NOT NULL GROUP BY id_usuario ORDER BY id_usuario
+             """, rs -> { usage.put(rs.getLong("id_usuario"), rs.getInt("usados")); }, net.id());
+-        return new Limits(limit, usage, net.version());
++        return new Limits(limit, usage, net.version(), net.modoTunel());
+     }
+ 
+     public Limits limits(long id, long actor) {
+         return tx.execute(status -> readLimits(owned(id, actor)));
+     }
+ 
+-    public Limits updateLimits(long id, long actor, int limit, long version) {
++    public Limits updateLimits(long id, long actor, int limit, long version, String mode) {
+         return tx.execute(status -> {
+             Network net = owned(id, actor);
+             if (!Set.of("PENDIENTE", "ACTIVA").contains(net.estado()) ||
+@@ -154,10 +154,10 @@ public class NetworkService {
+             Limits current = readLimits(net);
+             if (current.ocupadosPorUsuario().values().stream().anyMatch(used -> used > limit))
+                 throw error(HttpStatus.CONFLICT, "LIMITE_INFERIOR_A_OCUPACION");
+-            if (current.limiteEquiposUsuario() == limit) return current;
+-            db.update("UPDATE red_vpn SET limite_equipos_usuario=?, version=version+1 WHERE id_red=?", limit, id);
+-            audit(actor, id, "LIMITE_EQUIPOS_ACTUALIZADO", "RED_VPN", "Nuevo límite por usuario: " + limit);
+-            return new Limits(limit, current.ocupadosPorUsuario(), net.version() + 1);
++            if (current.limiteEquiposUsuario() == limit && current.modoTunel().equals(mode)) return current;
++            db.update("UPDATE red_vpn SET limite_equipos_usuario=?, modo_tunel=?, version=version+1 WHERE id_red=?", limit, mode, id);
++            audit(actor, id, "POLITICA_RED_ACTUALIZADA", "RED_VPN", "Límite por usuario: " + limit + ", modo: " + mode);
++            return new Limits(limit, current.ocupadosPorUsuario(), net.version() + 1, mode);
+         });
+     }
+ 
+diff --git a/src/main/java/mx/securelink/backend/api/SplitProfile.java b/src/main/java/mx/securelink/backend/api/SplitProfile.java
+new file mode 100644
+index 0000000..0852549
+--- /dev/null
++++ b/src/main/java/mx/securelink/backend/api/SplitProfile.java
+@@ -0,0 +1,39 @@
++package mx.securelink.backend.api;
++
++import java.util.ArrayList;
++import java.util.List;
++
++final class SplitProfile {
++    private static final String FULL_ROUTES = "AllowedIPs = 0.0.0.0/0, ::/0";
++    private SplitProfile() {}
++
++    static String render(String full, String cidr) {
++        if (cidr == null || !cidr.matches("10\\.78\\.(?:0|[1-9][0-9]{0,2})\\.(?:0|[1-9][0-9]{0,2})/28"))
++            throw new IllegalArgumentException("Subred de VPN inválida");
++        String[] octets = cidr.substring(0, cidr.length() - 3).split("\\.");
++        if (Integer.parseInt(octets[2]) > 255 || Integer.parseInt(octets[3]) > 240 ||
++            Integer.parseInt(octets[3]) % 16 != 0)
++            throw new IllegalArgumentException("Subred de VPN inválida");
++
++        List<String> lines = new ArrayList<>();
++        int routes = 0;
++        int addresses = 0;
++        for (String line : full.lines().toList()) {
++            if (line.startsWith("DNS = ")) continue;
++            if (line.equals(FULL_ROUTES)) {
++                line = "AllowedIPs = " + cidr;
++                routes++;
++            } else if (line.startsWith("Address = ")) {
++                int separator = line.indexOf(',');
++                if (separator < 0 || !line.substring(0, separator).matches("Address = 10\\.78\\.[0-9]{1,3}\\.[0-9]{1,3}/32"))
++                    throw new IllegalArgumentException("Dirección de perfil inválida");
++                line = line.substring(0, separator);
++                addresses++;
++            }
++            lines.add(line);
++        }
++        if (routes != 1 || addresses != 1)
++            throw new IllegalArgumentException("Formato de perfil no reconocido");
++        return String.join("\n", lines) + "\n";
++    }
++}
+diff --git a/src/main/java/mx/securelink/backend/api/VpnService.java b/src/main/java/mx/securelink/backend/api/VpnService.java
+index c8a3816..d914ebc 100644
+--- a/src/main/java/mx/securelink/backend/api/VpnService.java
++++ b/src/main/java/mx/securelink/backend/api/VpnService.java
+@@ -17,17 +17,17 @@ public class VpnService {
+     private final TransactionTemplate tx;
+     private final WireGuardClient agent;
+     public record Configuration(long id,long dispositivoId,String direccionIp,String clavePublica,
+-                                String estadoDeseado,String estadoAplicado,long version,LocalDateTime ultimaConfirmacion) { }
++                                String estadoDeseado,String estadoAplicado,long version,LocalDateTime ultimaConfirmacion,String modoTunel) { }
+     public record Operation(String id,long configuracionId,String tipo,String estado,int intentos,
+                             String codigoError,LocalDateTime fechaCreacion,LocalDateTime fechaActualizacion) { }
+     public record Job(String id,long configId,long deviceId,long version,long actor,String type,int attempt) { }
+     private static final String CONFIG="""
+         SELECT id_configuracion,id_dispositivo,direccion_ip,clave_publica,estado_deseado,
+-               estado_aplicado,version,ultima_confirmacion FROM configuracion_vpn
++               estado_aplicado,version,ultima_confirmacion,modo_tunel FROM configuracion_vpn
+         """;
+     private static final RowMapper<Configuration> CONFIG_MAP=(rs,n)->new Configuration(
+         rs.getLong(1),rs.getLong(2),rs.getString(3),rs.getString(4),rs.getString(5),rs.getString(6),rs.getLong(7),
+-        rs.getTimestamp(8)==null?null:rs.getTimestamp(8).toLocalDateTime());
++        rs.getTimestamp(8)==null?null:rs.getTimestamp(8).toLocalDateTime(),rs.getString(9));
+     private static final RowMapper<Operation> OP_MAP=(rs,n)->new Operation(
+         rs.getString("id_operacion"),rs.getLong("id_configuracion"),rs.getString("tipo"),rs.getString("estado"),
+         rs.getInt("intentos"),rs.getString("codigo_error"),rs.getTimestamp("fecha_creacion").toLocalDateTime(),
+@@ -60,7 +60,7 @@ public class VpnService {
+     private long newConfiguration(long device) {
+         var key=new GeneratedKeyHolder();
+         db.update(con -> {
+-            var ps=con.prepareStatement("INSERT INTO configuracion_vpn(id_dispositivo,modo_tunel) SELECT id_dispositivo,CASE WHEN id_red IS NULL THEN 'SPLIT' ELSE 'FULL' END FROM dispositivo WHERE id_dispositivo=?",Statement.RETURN_GENERATED_KEYS);
++            var ps=con.prepareStatement("INSERT INTO configuracion_vpn(id_dispositivo,modo_tunel) SELECT d.id_dispositivo,COALESCE(r.modo_tunel,'SPLIT') FROM dispositivo d LEFT JOIN red_vpn r ON r.id_red=d.id_red WHERE d.id_dispositivo=?",Statement.RETURN_GENERATED_KEYS);
+             ps.setLong(1,device);return ps;
+         },key);
+         return Objects.requireNonNull(key.getKey()).longValue();
+@@ -115,8 +115,15 @@ public class VpnService {
+             throw error(HttpStatus.BAD_REQUEST,"endpoint debe ser public o zerotier");
+         Configuration before=configuration(device);
+         available(before);
++        NetworkLink link=networkLink(device);
+         String config;
+-        try { config=agent.config(device,endpoint); }
++        try {
++            String generated=agent.config(device,endpoint);
++            config=link!=null && "SPLIT".equals(before.modoTunel())
++                ? SplitProfile.render(generated,link.cidr()) : generated;
++        } catch(IllegalArgumentException e) {
++            throw error(HttpStatus.SERVICE_UNAVAILABLE,"PERFIL_SPLIT_NO_DISPONIBLE");
++        }
+         catch(WireGuardClient.AgentFailure e) { throw error(HttpStatus.SERVICE_UNAVAILABLE,"Agente no disponible o configuracion no aplicada"); }
+         // No entregar material de una version que se revoco durante la llamada.
+         tx.executeWithoutResult(status -> {

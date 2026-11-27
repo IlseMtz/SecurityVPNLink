@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const root=process.cwd();
-const flutter=path.resolve(root,'web_build');
+const local=process.argv.includes('--local');
+const flutter=path.resolve(root,local?'../build/web':'web_build');
 const assets={};
 const tipos={'.html':'text/html; charset=utf-8','.js':'application/javascript; charset=utf-8',
   '.json':'application/json','.png':'image/png','.otf':'font/otf','.ttf':'font/ttf',
@@ -21,11 +22,16 @@ recorrer(flutter);
 const bootstrap=fs.readFileSync(path.join(flutter,'flutter_bootstrap.js'),'utf8');
 const revision=bootstrap.match(/"engineRevision"\s*:\s*"([0-9a-f]+)"/)?.[1];
 if(!revision)throw new Error('No se encontró la revisión del motor Flutter.');
-fs.writeFileSync('assets.generated.mjs',`export const assets=${JSON.stringify(assets)};\nexport const engineRevision=${JSON.stringify(revision)};\n`);
-fs.mkdirSync('dist/server',{recursive:true});
+const moduloAssets=`export const assets=${JSON.stringify(assets)};\nexport const engineRevision=${JSON.stringify(revision)};\n`;
 // Un único módulo Worker ESM, sin secretos ni credenciales de revisión.
-const fuente=fs.readFileSync('worker.mjs','utf8').replace("import { assets, engineRevision } from './assets.generated.mjs';",fs.readFileSync('assets.generated.mjs','utf8').replaceAll('export const ','const '));
-fs.writeFileSync('dist/server/index.js',fuente);
-fs.mkdirSync('dist/.openai',{recursive:true});
-fs.copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');
+const fuente=fs.readFileSync('worker.mjs','utf8').replace("import { assets, engineRevision } from './assets.generated.mjs';",moduloAssets.replaceAll('export const ','const '));
+if(local) {
+  fs.writeFileSync('../build/worker-local.mjs',fuente);
+} else {
+  fs.writeFileSync('assets.generated.mjs',moduloAssets);
+  fs.mkdirSync('dist/server',{recursive:true});
+  fs.writeFileSync('dist/server/index.js',fuente);
+  fs.mkdirSync('dist/.openai',{recursive:true});
+  fs.copyFileSync('.openai/hosting.json','dist/.openai/hosting.json');
+}
 console.log(JSON.stringify({assets:Object.keys(assets).length,bytes:Buffer.byteLength(fuente)}));
